@@ -7,9 +7,10 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface AqiApiService {
-    @GET("feed/{city}/")
-    suspend fun getCityAqi(
-        @Path("city") city: String,
+    @GET("feed/geo:{lat};{lon}/")
+    suspend fun getHyperlocalAqi(
+        @Path("lat") lat: Double,
+        @Path("lon") lon: Double,
         @Query("token") token: String
     ): AqiResponse
 
