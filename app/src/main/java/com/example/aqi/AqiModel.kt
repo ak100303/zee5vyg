@@ -1,11 +1,12 @@
 package com.example.aqi
 
+import com.google.gson.JsonElement
 import com.google.gson.annotations.SerializedName
 
-// This maps the JSON response from the WAQI API
+// This class is now flexible enough to handle unexpected API responses
 data class AqiResponse(
     val status: String,
-    val data: AqiData
+    val data: JsonElement // Changed from AqiData to JsonElement to prevent crashes
 )
 
 data class AqiData(
@@ -24,7 +25,8 @@ data class City(
 data class IaqiMetrics(
     val pm25: Value? = null,
     @SerializedName("t") val temperature: Value? = null,
-    @SerializedName("h") val humidity: Value? = null
+    @SerializedName("h") val humidity: Value? = null,
+    @SerializedName("w") val wind: Value? = null // Added the missing wind property
 )
 
 data class Value(
