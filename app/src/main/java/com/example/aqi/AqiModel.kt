@@ -3,10 +3,9 @@ package com.example.aqi
 import com.google.gson.JsonElement
 import com.google.gson.annotations.SerializedName
 
-// This class is now flexible enough to handle unexpected API responses
 data class AqiResponse(
     val status: String,
-    val data: JsonElement // Changed from AqiData to JsonElement to prevent crashes
+    val data: JsonElement
 )
 
 data class AqiData(
@@ -23,10 +22,13 @@ data class City(
 )
 
 data class IaqiMetrics(
-    val pm25: Value? = null,
+    @SerializedName("pm25") val pm25: Value? = null,
+    @SerializedName("pm10") val pm10: Value? = null,
+    @SerializedName("o3") val o3: Value? = null,
     @SerializedName("t") val temperature: Value? = null,
     @SerializedName("h") val humidity: Value? = null,
-    @SerializedName("w") val wind: Value? = null // Added the missing wind property
+    @SerializedName("w") val wind: Value? = null,
+    @SerializedName("p") val pressure: Value? = null
 )
 
 data class Value(

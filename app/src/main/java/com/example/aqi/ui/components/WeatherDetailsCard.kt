@@ -1,13 +1,8 @@
 package com.example.aqi.ui.components
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -20,42 +15,101 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.aqi.IaqiMetrics
 import kotlin.math.roundToInt
 
 @Composable
 fun WeatherDetailsCard(metrics: IaqiMetrics) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.2f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        shape = RoundedCornerShape(32.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.12f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         border = BorderStroke(
             1.dp,
             Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.4f),
-                    Color.White.copy(alpha = 0.2f)
+                    Color.White.copy(alpha = 0.3f),
+                    Color.White.copy(alpha = 0.1f)
                 )
             )
         )
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(20.dp),
-            horizontalArrangement = Arrangement.SpaceAround
-        ) {
-            metrics.temperature?.let { DetailItem("🌡️ Temp", "${it.value.roundToInt()}°C") }
-            metrics.humidity?.let { DetailItem("💧 Humidity", "${it.value.roundToInt()}%") }
-            metrics.wind?.let { DetailItem("💨 Wind", "${it.value.roundToInt()} km/h") }
+        Column(modifier = Modifier.padding(24.dp)) {
+            Text(
+                text = "METEOROLOGICAL DATA",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color.White.copy(alpha = 0.6f),
+                letterSpacing = 1.5.sp
+            )
+            
+            Spacer(modifier = Modifier.height(20.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                WeatherMetricItem(
+                    label = "Temperature",
+                    value = if (metrics.temperature != null) "${metrics.temperature.value.roundToInt()}°C" else "--",
+                    icon = "🌡️",
+                    modifier = Modifier.weight(1f)
+                )
+                WeatherMetricItem(
+                    label = "Humidity",
+                    value = if (metrics.humidity != null) "${metrics.humidity.value.roundToInt()}%" else "--",
+                    icon = "💧",
+                    modifier = Modifier.weight(1f)
+                )
+                WeatherMetricItem(
+                    label = "Wind Speed",
+                    value = if (metrics.wind != null) "${metrics.wind.value.roundToInt()} km/h" else "--",
+                    icon = "💨",
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun DetailItem(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = label, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f))
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(text = value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
+private fun WeatherMetricItem(
+    label: String,
+    value: String,
+    icon: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(text = icon, fontSize = 24.sp)
+        }
+        
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.ExtraBold,
+            color = Color.White
+        )
+        
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White.copy(alpha = 0.7f),
+            fontSize = 10.sp
+        )
     }
 }

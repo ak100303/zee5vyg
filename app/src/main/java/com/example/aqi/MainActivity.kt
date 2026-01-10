@@ -2,6 +2,7 @@ package com.example.aqi
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -45,18 +46,20 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import com.example.aqi.ui.components.AnimatedBackground
-import com.example.aqi.ui.components.AqiGauge
-import com.example.aqi.ui.components.HourlyPredictionCard
-import com.example.aqi.ui.components.PrecautionsCard
-import com.example.aqi.ui.components.PredictionCard
+import com.example.aqi.data.database.AqiDatabase
+import com.example.aqi.data.database.AqiEntity
+import com.example.aqi.ui.components.*
 import com.example.aqi.ui.theme.AQITheme
 import com.google.android.gms.location.LocationServices
 import com.google.gson.Gson
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
+    private val MIN_REFRESH_INTERVAL = 5 * 60 * 1000 // 5 minutes in milliseconds
+
     @SuppressLint("MissingPermission")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,6 +75,10 @@ class MainActivity : ComponentActivity() {
                 val gson = remember { Gson() }
                 val context = LocalContext.current
                 val scope = rememberCoroutineScope()
+                val sharedPrefs = remember { context.getSharedPreferences("aqi_prefs", Context.MODE_PRIVATE) }
+                
+                // Initialize Database
+                val db = remember { AqiDatabase.getDatabase(context) }
 
                 val locationLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestMultiplePermissions(),
@@ -79,26 +86,57 @@ class MainActivity : ComponentActivity() {
                         if (permissions.getOrDefault(Manifest.permission.ACCESS_FINE_LOCATION, false) ||
                             permissions.getOrDefault(Manifest.permission.ACCESS_COARSE_LOCATION, false)
                         ) {
+                            val lastFetch = sharedPrefs.getLong("last_fetch_time", 0L)
+                            val currentTime = System.currentTimeMillis()
+
+                            val cachedJson = sharedPrefs.getString("cached_aqi_data", null)
+                            if (cachedJson != null) {
+                                aqiData = gson.fromJson(cachedJson, AqiData::class.java)
+                            }
+
+                            if (currentTime - lastFetch < MIN_REFRESH_INTERVAL && aqiData != null) {
+                                isLoading = false
+                                return@rememberLauncherForActivityResult
+                            }
+
                             val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
                             fusedLocationClient.lastLocation.addOnSuccessListener { location ->
                                 if (location != null) {
                                     scope.launch {
-                                        isLoading = true
+                                        isLoading = aqiData == null
                                         try {
                                             val response = apiService.getHyperlocalAqi(location.latitude, location.longitude, BuildConfig.API_KEY)
                                             if (response.status == "ok" && response.data.isJsonObject) {
                                                 val data = gson.fromJson(response.data, AqiData::class.java)
                                                 aqiData = data
                                                 errorMessage = null
+                                                
+                                                // 1. Save to SharedPreferences (Cache)
+                                                sharedPrefs.edit()
+                                                    .putString("cached_aqi_data", gson.toJson(data))
+                                                    .putLong("last_fetch_time", System.currentTimeMillis())
+                                                    .apply()
+
+                                                // 2. Save to Room Database (History)
+                                                val todayDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Calendar.getInstance().time)
+                                                db.aqiDao().insertAqiRecord(
+                                                    AqiEntity(
+                                                        date = todayDate,
+                                                        aqi = data.aqi,
+                                                        cityName = data.city.name
+                                                    )
+                                                )
                                             } else {
-                                                errorMessage = response.data.toString()
+                                                if (aqiData == null) errorMessage = response.data.toString()
                                             }
                                         } catch (e: Exception) {
-                                            errorMessage = "Network error: ${e.message}"
+                                            if (aqiData == null) errorMessage = "Network error: ${e.message}"
                                         } finally {
                                             isLoading = false
                                         }
                                     }
+                                } else {
+                                    isLoading = false
                                 }
                             }
                         } else {
@@ -124,26 +162,26 @@ class MainActivity : ComponentActivity() {
 fun MainScreen(isLoading: Boolean, errorMessage: String?, aqiData: AqiData?) {
     Box(modifier = Modifier.fillMaxSize()) {
         when {
-            isLoading -> {
+            isLoading && aqiData == null -> {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             }
-            errorMessage != null -> {
+            errorMessage != null && aqiData == null -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(text = errorMessage, color = Color.Red, modifier = Modifier.padding(16.dp))
                 }
             }
             aqiData != null -> {
                 val (topColor, bottomColor) = when {
-                    aqiData.aqi <= 50 -> Color(0xFF1E3C72) to Color(0xFF2A5298) // Calm Blue
-                    aqiData.aqi <= 100 -> Color(0xFF3A3841) to Color(0xFF534741) // Muted Orange/Grey
-                    aqiData.aqi <= 150 -> Color(0xFF5D4037) to Color(0xFF4E342E) // Dark Orange
-                    else -> Color(0xFF4A2321) to Color(0xFF212121) // Deep Red/Black
+                    aqiData.aqi <= 50 -> Color(0xFF1E3C72) to Color(0xFF2A5298)
+                    aqiData.aqi <= 100 -> Color(0xFF3A3841) to Color(0xFF534741)
+                    aqiData.aqi <= 150 -> Color(0xFF5D4037) to Color(0xFF4E342E)
+                    else -> Color(0xFF4A2321) to Color(0xFF212121)
                 }
 
                 val animatedTopColor by animateColorAsState(targetValue = topColor, animationSpec = tween(2000), label = "")
                 val animatedBottomColor by animateColorAsState(targetValue = bottomColor, animationSpec = tween(2000), label = "")
 
-                val pagerState = rememberPagerState { 3 }
+                val pagerState = rememberPagerState { 4 }
 
                 Box(
                     modifier = Modifier
@@ -156,6 +194,7 @@ fun MainScreen(isLoading: Boolean, errorMessage: String?, aqiData: AqiData?) {
                             0 -> CurrentAqiScreen(aqiData)
                             1 -> ForecastScreen(aqiData = aqiData)
                             2 -> ExerciseScreen(aqi = aqiData.aqi)
+                            3 -> CalendarScreen(forecasts = aqiData.forecast?.daily?.pm25 ?: emptyList())
                         }
                     }
 
@@ -166,7 +205,7 @@ fun MainScreen(isLoading: Boolean, errorMessage: String?, aqiData: AqiData?) {
                             .align(Alignment.BottomCenter),
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        repeat(3) { iteration ->
+                        repeat(4) { iteration ->
                             val color = if (pagerState.currentPage == iteration) Color.White else Color.White.copy(alpha = 0.5f)
                             Box(
                                 modifier = Modifier
