@@ -70,6 +70,7 @@ dependencies {
     implementation("androidx.core:core-splashscreen:1.2.0")
     implementation("com.airbnb.android:lottie-compose:6.7.1")
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0") // Added for .await()
     implementation("org.tensorflow:tensorflow-lite-task-vision:0.4.4")
     implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
     

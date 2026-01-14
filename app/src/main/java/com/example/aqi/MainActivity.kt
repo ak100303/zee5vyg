@@ -11,54 +11,42 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.example.aqi.data.database.AqiDatabase
 import com.example.aqi.data.database.AqiEntity
 import com.example.aqi.ui.components.*
 import com.example.aqi.ui.theme.AQITheme
-import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.*
 import com.google.gson.Gson
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Locale
+import java.util.*
 
 class MainActivity : ComponentActivity() {
-    private val MIN_REFRESH_INTERVAL = 5 * 60 * 1000 // 5 minutes in milliseconds
+    private val MIN_REFRESH_INTERVAL = 5 * 60 * 1000 // 5 minutes
 
     @SuppressLint("MissingPermission")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,15 +58,98 @@ class MainActivity : ComponentActivity() {
                 var isLoading by remember { mutableStateOf(true) }
                 var aqiData by remember { mutableStateOf<AqiData?>(null) }
                 var errorMessage by remember { mutableStateOf<String?>(null) }
+                var showSearchDialog by remember { mutableStateOf(false) }
+                var customQuery by remember { mutableStateOf<String?>(null) }
 
                 val apiService = remember { AqiApiService.create() }
                 val gson = remember { Gson() }
                 val context = LocalContext.current
                 val scope = rememberCoroutineScope()
                 val sharedPrefs = remember { context.getSharedPreferences("aqi_prefs", Context.MODE_PRIVATE) }
-                
-                // Initialize Database
                 val db = remember { AqiDatabase.getDatabase(context) }
+
+                val fetchData = { force: Boolean, query: String? ->
+                    scope.launch {
+                        isLoading = true
+                        try {
+                            val lastFetch = sharedPrefs.getLong("last_fetch_time", 0L)
+                            val currentTime = System.currentTimeMillis()
+
+                            if (!force && query == null && aqiData == null) {
+                                val cachedJson = sharedPrefs.getString("cached_nearby_aqi", null)
+                                if (cachedJson != null) {
+                                    aqiData = gson.fromJson(cachedJson, AqiData::class.java)
+                                    if (currentTime - lastFetch < MIN_REFRESH_INTERVAL) {
+                                        isLoading = false
+                                        return@launch
+                                    }
+                                }
+                            }
+
+                            val response = if (query != null) {
+                                if (query.all { it.isDigit() }) {
+                                    apiService.getAqiByStationId(query, BuildConfig.API_KEY)
+                                } else {
+                                    apiService.getAqiByCityName(query, BuildConfig.API_KEY)
+                                }
+                            } else {
+                                val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+                                
+                                // Improved Location Fetch: Try lastLocation then request fresh update
+                                var location = try {
+                                    fusedLocationClient.lastLocation.await()
+                                } catch (e: Exception) { null }
+
+                                if (location == null) {
+                                    // Force a single high-accuracy update
+                                    val locationRequest = CurrentLocationRequest.Builder()
+                                        .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+                                        .build()
+                                    location = try {
+                                        fusedLocationClient.getCurrentLocation(locationRequest, null).await()
+                                    } catch (e: Exception) { null }
+                                }
+
+                                if (location != null) {
+                                    apiService.getHyperlocalAqi(location.latitude, location.longitude, BuildConfig.API_KEY)
+                                } else {
+                                    null
+                                }
+                            }
+
+                            if (response != null) {
+                                if (response.status == "ok" && response.data.isJsonObject) {
+                                    val data = gson.fromJson(response.data, AqiData::class.java)
+                                    aqiData = data
+                                    errorMessage = null
+                                    
+                                    if (query == null) {
+                                        sharedPrefs.edit()
+                                            .putString("cached_nearby_aqi", gson.toJson(data))
+                                            .putLong("last_fetch_time", System.currentTimeMillis())
+                                            .apply()
+                                            
+                                        db.aqiDao().insertAqiRecord(
+                                            AqiEntity(
+                                                date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()),
+                                                aqi = data.aqi,
+                                                cityName = data.city.name
+                                            )
+                                        )
+                                    }
+                                } else {
+                                    errorMessage = "Location not found: ${response.data.asString}"
+                                }
+                            } else {
+                                errorMessage = "Could not determine location. Please ensure GPS is enabled and you have a signal."
+                            }
+                        } catch (e: Exception) {
+                            errorMessage = "Connection error: ${e.localizedMessage}"
+                        } finally {
+                            isLoading = false
+                        }
+                    }
+                }
 
                 val locationLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestMultiplePermissions(),
@@ -86,61 +157,9 @@ class MainActivity : ComponentActivity() {
                         if (permissions.getOrDefault(Manifest.permission.ACCESS_FINE_LOCATION, false) ||
                             permissions.getOrDefault(Manifest.permission.ACCESS_COARSE_LOCATION, false)
                         ) {
-                            val lastFetch = sharedPrefs.getLong("last_fetch_time", 0L)
-                            val currentTime = System.currentTimeMillis()
-
-                            val cachedJson = sharedPrefs.getString("cached_aqi_data", null)
-                            if (cachedJson != null) {
-                                aqiData = gson.fromJson(cachedJson, AqiData::class.java)
-                            }
-
-                            if (currentTime - lastFetch < MIN_REFRESH_INTERVAL && aqiData != null) {
-                                isLoading = false
-                                return@rememberLauncherForActivityResult
-                            }
-
-                            val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
-                            fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                                if (location != null) {
-                                    scope.launch {
-                                        isLoading = aqiData == null
-                                        try {
-                                            val response = apiService.getHyperlocalAqi(location.latitude, location.longitude, BuildConfig.API_KEY)
-                                            if (response.status == "ok" && response.data.isJsonObject) {
-                                                val data = gson.fromJson(response.data, AqiData::class.java)
-                                                aqiData = data
-                                                errorMessage = null
-                                                
-                                                // 1. Save to SharedPreferences (Cache)
-                                                sharedPrefs.edit()
-                                                    .putString("cached_aqi_data", gson.toJson(data))
-                                                    .putLong("last_fetch_time", System.currentTimeMillis())
-                                                    .apply()
-
-                                                // 2. Save to Room Database (History)
-                                                val todayDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Calendar.getInstance().time)
-                                                db.aqiDao().insertAqiRecord(
-                                                    AqiEntity(
-                                                        date = todayDate,
-                                                        aqi = data.aqi,
-                                                        cityName = data.city.name
-                                                    )
-                                                )
-                                            } else {
-                                                if (aqiData == null) errorMessage = response.data.toString()
-                                            }
-                                        } catch (e: Exception) {
-                                            if (aqiData == null) errorMessage = "Network error: ${e.message}"
-                                        } finally {
-                                            isLoading = false
-                                        }
-                                    }
-                                } else {
-                                    isLoading = false
-                                }
-                            }
+                            fetchData(false, null)
                         } else {
-                            errorMessage = "Location permission is required to fetch AQI data."
+                            errorMessage = "Location permission is required."
                             isLoading = false
                         }
                     }
@@ -150,8 +169,30 @@ class MainActivity : ComponentActivity() {
                     locationLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                 }
 
+                if (showSearchDialog) {
+                    LocationSearchDialog(
+                        onDismiss = { showSearchDialog = false },
+                        onSearch = { query ->
+                            customQuery = query
+                            fetchData(true, query)
+                            showSearchDialog = false
+                        },
+                        onReset = {
+                            customQuery = null
+                            fetchData(true, null)
+                            showSearchDialog = false
+                        }
+                    )
+                }
+
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    MainScreen(isLoading, errorMessage, aqiData)
+                    MainScreen(
+                        isLoading = isLoading,
+                        errorMessage = errorMessage,
+                        aqiData = aqiData,
+                        onRefresh = { fetchData(true, customQuery) },
+                        onStationLongPress = { showSearchDialog = true }
+                    )
                 }
             }
         }
@@ -159,7 +200,13 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun MainScreen(isLoading: Boolean, errorMessage: String?, aqiData: AqiData?) {
+fun MainScreen(
+    isLoading: Boolean,
+    errorMessage: String?,
+    aqiData: AqiData?,
+    onRefresh: () -> Unit,
+    onStationLongPress: () -> Unit
+) {
     Box(modifier = Modifier.fillMaxSize()) {
         when {
             isLoading && aqiData == null -> {
@@ -189,9 +236,10 @@ fun MainScreen(isLoading: Boolean, errorMessage: String?, aqiData: AqiData?) {
                         .background(Brush.verticalGradient(listOf(animatedTopColor, animatedBottomColor)))
                 ) {
                     AnimatedBackground()
+                    
                     HorizontalPager(state = pagerState) { page ->
                         when (page) {
-                            0 -> CurrentAqiScreen(aqiData)
+                            0 -> CurrentAqiScreen(aqiData, onRefresh, onStationLongPress)
                             1 -> ForecastScreen(aqiData = aqiData)
                             2 -> ExerciseScreen(aqi = aqiData.aqi)
                             3 -> CalendarScreen(forecasts = aqiData.forecast?.daily?.pm25 ?: emptyList())
@@ -223,9 +271,9 @@ fun MainScreen(isLoading: Boolean, errorMessage: String?, aqiData: AqiData?) {
 }
 
 @Composable
-fun CurrentAqiScreen(aqiData: AqiData) {
+fun CurrentAqiScreen(aqiData: AqiData, onRefresh: () -> Unit, onStationLongPress: () -> Unit) {
     val liveAqi = aqiData.aqi
-    val cityName = aqiData.city.name.split(",").first().trim()
+    val stationName = aqiData.city.name
 
     Column(
         modifier = Modifier
@@ -236,11 +284,37 @@ fun CurrentAqiScreen(aqiData: AqiData) {
     ) {
         Spacer(modifier = Modifier.height(40.dp))
 
-        Text(
-            text = cityName.uppercase(Locale.ROOT),
-            style = MaterialTheme.typography.bodyMedium,
-            color = Color.White.copy(alpha = 0.7f)
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .pointerInput(Unit) {
+                        detectTapGestures(onLongPress = { onStationLongPress() })
+                    }
+            ) {
+                Text(
+                    text = "LOCATION (Long-press to change):",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.5f)
+                )
+                Text(
+                    text = stationName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White,
+                    maxLines = 1
+                )
+            }
+            IconButton(onClick = onRefresh) {
+                Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         Text(
             "Air Quality Index",
             style = MaterialTheme.typography.headlineLarge,
@@ -252,7 +326,15 @@ fun CurrentAqiScreen(aqiData: AqiData) {
 
         AqiGauge(aqi = liveAqi)
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Row(
+            modifier = Modifier.padding(vertical = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            MetricBadge("PM2.5", aqiData.iaqi.pm25?.value?.toInt()?.toString() ?: "--")
+            MetricBadge("PM10", aqiData.iaqi.pm10?.value?.toInt()?.toString() ?: "--")
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
         HourlyPredictionCard(aqiData = aqiData)
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -265,4 +347,49 @@ fun CurrentAqiScreen(aqiData: AqiData) {
 
         Spacer(modifier = Modifier.height(40.dp))
     }
+}
+
+@Composable
+fun MetricBadge(label: String, value: String) {
+    Surface(
+        color = Color.White.copy(alpha = 0.1f),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+            Text(text = "$label: ", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
+            Text(text = value, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        }
+    }
+}
+
+@Composable
+fun LocationSearchDialog(onDismiss: () -> Unit, onSearch: (String) -> Unit, onReset: () -> Unit) {
+    var query by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Search Location") },
+        text = {
+            Column {
+                Text("Enter a city name (e.g. \"London\") or a specific Station ID.")
+                Spacer(modifier = Modifier.height(16.dp))
+                TextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text("Search...") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = { if (query.isNotBlank()) onSearch(query) }) {
+                Text("Search")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onReset) {
+                Text("Use My Location")
+            }
+        }
+    )
 }

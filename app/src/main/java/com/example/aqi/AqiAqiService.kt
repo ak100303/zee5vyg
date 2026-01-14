@@ -14,6 +14,18 @@ interface AqiApiService {
         @Query("token") token: String
     ): AqiResponse
 
+    @GET("feed/@{uid}/")
+    suspend fun getAqiByStationId(
+        @Path("uid") uid: String,
+        @Query("token") token: String
+    ): AqiResponse
+
+    @GET("feed/{city}/")
+    suspend fun getAqiByCityName(
+        @Path("city") city: String,
+        @Query("token") token: String
+    ): AqiResponse
+
     companion object {
         private const val BASE_URL = "https://api.waqi.info/"
 

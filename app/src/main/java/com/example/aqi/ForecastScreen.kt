@@ -24,8 +24,6 @@ import androidx.compose.ui.unit.sp
 import com.example.aqi.ui.components.WeatherDetailsCard
 import java.text.SimpleDateFormat
 import java.util.*
-import kotlin.math.max
-import kotlin.math.min
 
 @Composable
 fun ForecastScreen(aqiData: AqiData) {
@@ -58,12 +56,26 @@ fun ForecastScreen(aqiData: AqiData) {
         Spacer(modifier = Modifier.height(40.dp))
 
         Text(
-            "Daily Forecast ($dateRange)",
+            text = "PM2.5 Forecast",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = Color.White
         )
+        
+        Text(
+            text = "Source: ${aqiData.city.name}",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White.copy(alpha = 0.5f)
+        )
+        
+        Text(
+            text = dateRange,
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White.copy(alpha = 0.7f)
+        )
+        
         Spacer(modifier = Modifier.height(16.dp))
+        
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
@@ -73,7 +85,7 @@ fun ForecastScreen(aqiData: AqiData) {
                 AqiForecastGraph(
                     forecasts = forecasts,
                     modifier = Modifier
-                        .padding(16.dp)
+                        .padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 32.dp)
                         .fillMaxWidth()
                         .height(250.dp)
                 )
@@ -106,7 +118,6 @@ fun AqiForecastGraph(forecasts: List<ForecastDay>, modifier: Modifier = Modifier
         val bottomPadding = 40.dp.toPx()
         val graphHeight = size.height - bottomPadding
 
-        // --- Dynamic Y-Axis Scaling ---
         val minAqiValue = forecasts.minOfOrNull { it.min } ?: 0
         val maxAqiValue = forecasts.maxOfOrNull { it.max } ?: 200
         val range = (maxAqiValue - minAqiValue).toFloat().coerceAtLeast(1f)
@@ -116,8 +127,7 @@ fun AqiForecastGraph(forecasts: List<ForecastDay>, modifier: Modifier = Modifier
 
         val xStep = size.width / (forecasts.size - 1).coerceAtLeast(1)
 
-        // --- Draw Grid and X-Axis Labels ---
-        forecasts.forEachIndexed { index, forecast -> // X-axis day labels
+        forecasts.forEachIndexed { index, forecast ->
             val x = index * xStep
             val dayText = SimpleDateFormat("EEE", Locale.getDefault()).format(SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(forecast.day)!!)
 
@@ -129,13 +139,11 @@ fun AqiForecastGraph(forecasts: List<ForecastDay>, modifier: Modifier = Modifier
             )
         }
 
-        // --- Map data to canvas points using dynamic scale ---
         val scaleY = { value: Int -> graphHeight - ((value - paddedMin) / dynamicRange * graphHeight) }
         val avgPoints = forecasts.mapIndexed { i, f -> Offset(i * xStep, scaleY(f.avg)) }
         val minPoints = forecasts.mapIndexed { i, f -> Offset(i * xStep, scaleY(f.min)) }
         val maxPoints = forecasts.mapIndexed { i, f -> Offset(i * xStep, scaleY(f.max)) }
 
-        // --- Draw Min-Max Range Area ---
         val rangePath = Path().apply {
             moveTo(minPoints.first().x, minPoints.first().y)
             minPoints.forEach { lineTo(it.x, it.y) }
@@ -144,12 +152,10 @@ fun AqiForecastGraph(forecasts: List<ForecastDay>, modifier: Modifier = Modifier
         }
         drawPath(rangePath, color = Color.White.copy(alpha = 0.1f))
 
-        // --- Draw Average Line ---
         avgPoints.zipWithNext().forEach { (start, end) ->
             drawLine(color = Color(0xFFFFEB3B), start = start, end = end, strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
         }
 
-        // --- Draw Interactive Scrubber and Labels ---
         selectedIndex?.let { index ->
             val selectedAvg = avgPoints[index]
             val forecast = forecasts[index]
