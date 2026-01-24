@@ -2,22 +2,20 @@ name: Hourly AQI Recorder
 
 on:
   schedule:
-    - cron: '* * * * *' # Runs at the start of every hour (UTC)
+    - cron: '0 * * * *' # Runs at the start of every hour (UTC)
   workflow_dispatch: # Allows you to run it manually from the Actions tab
-  # re-register scheduler
-
 
 jobs:
   record:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: '20'
 
       - name: Install dependencies
         run: |
@@ -28,4 +26,3 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           WAQI_TOKEN: ${{ secrets.WAQI_TOKEN }}
           USER_UID: ${{ secrets.USER_UID }}
-
