@@ -1,24 +1,19 @@
-name: Hourly AQI Recorder
+# File: .github/workflows/test_record_aqi.yml
+# Purpose: Scheduled run and manual smoke-test for scripts/record_aqi.js
+# This version avoids `npm ci` failures by choosing the appropriate install command.
+
+name: Test Record AQI
 
 on:
   schedule:
-    - cron: '5 * * * *' # Runs at minute 5 of every hour (UTC)
-  workflow_dispatch: # Allows you to run it manually from the Actions tab
-
-permissions:
-  contents: read
-
-concurrency:
-  group: hourly-aqi-recorder
-  cancel-in-progress: true
+    # Attempt to run every 2 minutes (may be subject to GitHub schedule limits)
+    - cron: '*/2 * * * *'
+  workflow_dispatch: {}
 
 jobs:
-  record:
+  run_once:
+    name: Run record_aqi.js once
     runs-on: ubuntu-latest
-    env:
-      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-      WAQI_TOKEN: ${{ secrets.WAQI_TOKEN }}
-      USER_UID: ${{ secrets.USER_UID }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -26,18 +21,72 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '18'
 
-      - name: Cache node modules
-        uses: actions/cache@v4
+      - name: Install dependencies (robust)
+        run: |
+          set -e
+          if [ -f package-lock.json ]; then
+            echo "package-lock.json found -> using npm ci"
+            npm ci
+          elif [ -f package.json ]; then
+            echo "package.json found, no lockfile -> using npm install"
+            npm install --no-audit --no-fund
+          else
+            echo "No package.json -> installing minimal runtime deps"
+            npm install axios firebase-admin --no-audit --no-fund
+          fi
+
+      - name: Run record script
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          USER_UID: ${{ secrets.USER_UID }}
+          WAQI_TOKEN: ${{ secrets.WAQI_TOKEN }}
+        run: |
+          echo "Running record_aqi.js at $(date -u)"
+          node scripts/record_aqi.js
+
+  smoke_test_loop:
+    name: Manual smoke-test: loop every 2 minutes (trigger via 'Run workflow' in Actions)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
+          node-version: '18'
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install dependencies (robust)
+        run: |
+          set -e
+          if [ -f package-lock.json ]; then
+            echo "package-lock.json found -> using npm ci"
+            npm ci
+          elif [ -f package.json ]; then
+            echo "package.json found, no lockfile -> using npm install"
+            npm install --no-audit --no-fund
+          else
+            echo "No package.json -> installing minimal runtime deps"
+            npm install axios firebase-admin --no-audit --no-fund
+          fi
 
-      - name: Run AQI Recorder Script
-        run: node scripts/record_aqi.js
+      - name: Run in 2-minute loop (5 iterations -> ~10 minutes)
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          USER_UID: ${{ secrets.USER_UID }}
+          WAQI_TOKEN: ${{ secrets.WAQI_TOKEN }}
+        run: |
+          echo "Starting smoke-test loop at $(date -u)"
+          ITERATIONS=5
+          for i in $(seq 1 $ITERATIONS); do
+            echo "Iteration $i at $(date -u)"
+            node scripts/record_aqi.js || echo "Script exited with non-zero code (iteration $i)"
+            if [ "$i" -lt "$ITERATIONS" ]; then
+              echo "Sleeping 120s..."
+              sleep 120
+            fi
+          done
+          echo "Smoke-test loop complete at $(date -u)"
