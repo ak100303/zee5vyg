@@ -32,7 +32,16 @@ class AqiBackgroundWorker(
     private val CHANNEL_ID = "aqi_recorder_channel"
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
-        return ForegroundInfo(NOTIFICATION_ID, createNotification())
+        return ForegroundInfo(
+            NOTIFICATION_ID,
+            createNotification(),
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            } else {
+                0
+            }
+        )
     }
 
     private fun createNotification(): Notification {
@@ -42,8 +51,9 @@ class AqiBackgroundWorker(
                 "AQI Background Recorder",
                 NotificationManager.IMPORTANCE_LOW
             )
-            val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
+            val manager =
+                applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.createNotificationChannel(channel)
         }
 
         return NotificationCompat.Builder(applicationContext, CHANNEL_ID)
@@ -56,13 +66,6 @@ class AqiBackgroundWorker(
 
     @SuppressLint("MissingPermission")
     override suspend fun doWork(): Result {
-        // Promote to foreground to prevent killing during sleep
-        try {
-            setForeground(getForegroundInfo())
-        } catch (e: Exception) {
-            // Handle if expedited work is not supported or quota exceeded
-        }
-
         val apiService = AqiApiService.create()
         val db = AqiDatabase.getDatabase(applicationContext)
         val firestore = FirebaseFirestore.getInstance()
@@ -72,6 +75,7 @@ class AqiBackgroundWorker(
         return try {
             val fusedLocationClient = LocationServices.getFusedLocationProviderClient(applicationContext)
             
+            // Try high accuracy location
             var location = try {
                 val locationRequest = CurrentLocationRequest.Builder()
                     .setPriority(Priority.PRIORITY_BALANCED_POWER_ACCURACY)
@@ -95,8 +99,10 @@ class AqiBackgroundWorker(
                     val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(now.time)
                     val hour = now.get(Calendar.HOUR_OF_DAY)
                     
+                    // 1. Save Local
                     db.aqiDao().insertHourlyRecord(HourlyAqiEntity(date = dateStr, hour = hour, cityName = data.city.name, aqi = data.aqi))
 
+                    // 2. Save Cloud
                     val userId = auth.currentUser?.uid
                     if (userId != null) {
                         val hourlyRecord = hashMapOf(
@@ -121,6 +127,7 @@ class AqiBackgroundWorker(
                         }.await()
                     }
 
+                    // 3. Update Local Daily Max
                     val existing = db.aqiDao().getAqiRecordForDateAndCity(dateStr, data.city.name)
                     if (existing == null || data.aqi > existing.aqi) {
                         db.aqiDao().insertAqiRecord(AqiEntity(dateStr, data.city.name, data.aqi))

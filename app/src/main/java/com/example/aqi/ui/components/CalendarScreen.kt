@@ -69,14 +69,17 @@ fun CalendarScreen(cityName: String, forecasts: ForecastDetails?) {
         helper.get(Calendar.DAY_OF_WEEK) - 1
     }
 
-    // CLOUD SYNC: Automatically download missing data from Firebase when viewing a month
-    LaunchedEffect(viewDate, cityName) {
+    // CLOUD SYNC: Now triggers on day selection too!
+    LaunchedEffect(viewDate, cityName, selectedDayOfMonth) {
         val userId = auth.currentUser?.uid ?: return@LaunchedEffect
+        val cal = viewDate.clone() as Calendar
+        cal.set(Calendar.DAY_OF_MONTH, selectedDayOfMonth)
+        val selectedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(cal.time)
         val monthStr = SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(viewDate.time)
         
         scope.launch {
             try {
-                // 1. Sync Daily Averages
+                // 1. Sync all daily peaks for the month
                 val snapshot = firestore.collection("users").document(userId)
                     .collection("history")
                     .whereGreaterThanOrEqualTo("date", "$monthStr-01")
@@ -88,31 +91,32 @@ fun CalendarScreen(cityName: String, forecasts: ForecastDetails?) {
                     val aqi = doc.getLong("aqi")?.toInt() ?: 0
                     val city = doc.getString("cityName") ?: cityName
                     db.aqiDao().insertAqiRecord(AqiEntity(date, city, aqi))
-                    
-                    // 2. Sync Hourly Data for the selected day specifically
-                    if (date.endsWith("-$selectedDayOfMonth") || date.endsWith("-0$selectedDayOfMonth")) {
-                        val hourlySnapshot = doc.reference.collection("hourly").get().await()
-                        hourlySnapshot.documents.forEach { hDoc ->
-                            val hour = hDoc.id.toIntOrNull() ?: 0
-                            val hAqi = hDoc.getLong("aqi")?.toInt() ?: 0
-                            db.aqiDao().insertHourlyRecord(HourlyAqiEntity(0, date, hour, city, hAqi))
-                        }
-                    }
+                }
+
+                // 2. Sync hourly details for the currently SELECTED day
+                val hourlySnapshot = firestore.collection("users").document(userId)
+                    .collection("history").document(selectedDateStr)
+                    .collection("hourly").get().await()
+                
+                hourlySnapshot.documents.forEach { hDoc ->
+                    val hour = hDoc.id.toIntOrNull() ?: 0
+                    val hAqi = hDoc.getLong("aqi")?.toInt() ?: 0
+                    db.aqiDao().insertHourlyRecord(HourlyAqiEntity(0, selectedDateStr, hour, cityName, hAqi))
                 }
             } catch (e: Exception) {}
         }
     }
 
-    // Observe local DB
+    // Local DB Observers
     val monthQuery = remember(viewDate) { SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(viewDate.time) + "%" }
     val historyRecords by db.aqiDao().getAqiRecordsForMonthAndCity(monthQuery, cityName).collectAsState(initial = emptyList())
 
-    val selectedDateStr = remember(viewDate, selectedDayOfMonth) {
+    val selectedFullDateStr = remember(viewDate, selectedDayOfMonth) {
         val cal = viewDate.clone() as Calendar
         cal.set(Calendar.DAY_OF_MONTH, selectedDayOfMonth)
         SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(cal.time)
     }
-    val hourlyRecords by db.aqiDao().getHourlyRecordsForDay(selectedDateStr, cityName).collectAsState(initial = emptyList())
+    val hourlyRecords by db.aqiDao().getHourlyRecordsForDay(selectedFullDateStr, cityName).collectAsState(initial = emptyList())
 
     val aqiMap = remember(historyRecords, forecasts, viewDate) {
         val map = mutableMapOf<Int, Int>()
@@ -148,7 +152,8 @@ fun CalendarScreen(cityName: String, forecasts: ForecastDetails?) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
         Spacer(modifier = Modifier.height(40.dp))
         Text(text = "Historical Record", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = Color.White)
-        Text(text = "Cloud Sync Active", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = Color.Cyan.copy(alpha = 0.8f))
+        Text(text = "Live Cloud History Enabled", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, color = Color(0xFF00E676))
+        
         Spacer(modifier = Modifier.height(16.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { viewDate = (viewDate.clone() as Calendar).apply { add(Calendar.MONTH, -1) } }) {

@@ -19,25 +19,34 @@ async function record() {
 
     let apiUrl;
     if (lastLocation && lastLocation.lat && lastLocation.lon) {
-      console.log(`Beacon found! Using GPS coordinates: ${lastLocation.lat}, ${lastLocation.lon}`);
+      console.log(`Beacon found! Using coordinates: ${lastLocation.lat}, ${lastLocation.lon}`);
       apiUrl = `https://api.waqi.info/feed/geo:${lastLocation.lat};${lastLocation.lon}/?token=${token}`;
     } else {
-      console.log("No beacon found. Falling back to default IP-based hyperlocal feed.");
+      console.log("No beacon found. Falling back to IP-based location.");
       apiUrl = `https://api.waqi.info/feed/here/?token=${token}`;
     }
 
     // 2. Fetch AQI
     const response = await axios.get(apiUrl);
-    
-    if (response.data.status !== "ok") {
-      throw new Error(`API Error: ${response.data.data}`);
-    }
+    if (response.data.status !== "ok") throw new Error(`API Error: ${response.data.data}`);
 
     const data = response.data.data;
+
+    // --- BULLETPROOF IST TIMEZONE FIX ---
+    // IST is UTC + 5:30. We calculate this manually for 100% reliability.
     const now = new Date();
-    // Format: yyyy-MM-dd
-    const dateStr = now.toISOString().split('T')[0];
-    const hour = now.getHours();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const nowIST = new Date(now.getTime() + istOffset);
+    
+    // Extract IST components using UTC methods on the offset date
+    const year = nowIST.getUTCFullYear();
+    const month = String(nowIST.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(nowIST.getUTCDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
+    const hour = nowIST.getUTCHours();
+
+    console.log(`Current Server UTC: ${now.toUTCString()}`);
+    console.log(`Calculated Local IST: ${dateStr} ${hour}:00`);
 
     const record = {
       aqi: data.aqi,
@@ -46,17 +55,15 @@ async function record() {
       date: dateStr
     };
 
-    const dayDocRef = db.collection('users').doc(uid)
-      .collection('history').doc(dateStr);
+    const dayDocRef = db.collection('users').doc(uid).collection('history').doc(dateStr);
 
-    // 3. Save the hourly snapshot
+    // 3. Save the hourly snapshot (using the IST hour)
     await dayDocRef.collection('hourly').doc(hour.toString()).set(record);
 
-    // 4. Update the daily maximum AQI (High-Water Mark logic)
+    // 4. Update Daily Max (High-Water Mark)
     await db.runTransaction(async (transaction) => {
       const doc = await transaction.get(dayDocRef);
       const currentMax = doc.exists ? (doc.data().aqi || 0) : 0;
-      
       if (data.aqi > currentMax) {
         transaction.set(dayDocRef, {
           aqi: data.aqi,
@@ -66,9 +73,9 @@ async function record() {
       }
     });
 
-    console.log(`Successfully recorded hyperlocal AQI: ${data.aqi} for ${data.city.name} at hour ${hour}`);
+    console.log(`Successfully recorded slot [${hour}] for ${data.city.name} with AQI: ${data.aqi}`);
   } catch (error) {
-    console.error("Critical Error during recording:", error.message);
+    console.error("Critical Error:", error.message);
     process.exit(1);
   }
 }

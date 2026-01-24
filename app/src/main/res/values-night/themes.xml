@@ -1,7 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 1. The Main App Theme (Night) -->
+    <style name="Theme.AQI" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">#4CAF50</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <!-- 2. The Starting Theme (Night) -->
     <style name="Theme.App.Starting" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">@color/black</item>
         <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="windowSplashScreenBackground">#1A1A1A</item>
         <item name="postSplashScreenTheme">@style/Theme.AQI</item>
     </style>
 </resources>

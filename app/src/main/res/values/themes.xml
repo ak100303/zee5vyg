@@ -1,5 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 1. The Main App Theme (Post-Splash) -->
+    <style name="Theme.AQI" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">#4CAF50</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
 
-    <style name="Theme.AQI" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- 2. The Starting Theme (Required for Splash Screen) -->
+    <style name="Theme.App.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="windowSplashScreenBackground">#1A1A1A</item> <!-- Matches your app's dark look -->
+        <item name="postSplashScreenTheme">@style/Theme.AQI</item>
+    </style>
 </resources>

@@ -60,13 +60,17 @@ class MainActivity : ComponentActivity() {
 
     @SuppressLint("MissingPermission")
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+        // 1. Install Splash Screen BEFORE super.onCreate()
         installSplashScreen()
         
+        super.onCreate(savedInstanceState)
+        
+        // 2. Perform background init safely
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                FirebaseAuth.getInstance().signInAnonymously().await()
-                setupBackgroundRecording(forceUpdate = true)
+                if (FirebaseAuth.getInstance().currentUser == null) {
+                    FirebaseAuth.getInstance().signInAnonymously().await()
+                }
             } catch (e: Exception) {}
         }
 
@@ -78,9 +82,9 @@ class MainActivity : ComponentActivity() {
                 var showSearchDialog by remember { mutableStateOf(false) }
                 var customQuery by remember { mutableStateOf<String?>(null) }
 
+                val context = LocalContext.current
                 val apiService = remember { AqiApiService.create() }
                 val gson = remember { Gson() }
-                val context = LocalContext.current
                 val scope = rememberCoroutineScope()
                 val sharedPrefs = remember { context.getSharedPreferences("aqi_prefs", Context.MODE_PRIVATE) }
                 val db = remember { AqiDatabase.getDatabase(context) }
@@ -128,17 +132,18 @@ class MainActivity : ComponentActivity() {
                                     }
 
                                     if (location != null) {
-                                        // BEACON LOGIC: Update cloud with current coordinates for GitHub Actions
-                                        val userId = auth.currentUser?.uid
-                                        if (userId != null) {
-                                            val locationData = hashMapOf(
-                                                "lat" to location.latitude,
-                                                "lon" to location.longitude,
-                                                "lastSeen" to com.google.firebase.Timestamp.now()
-                                            )
-                                            firestore.collection("users").document(userId)
-                                                .set(hashMapOf("lastLocation" to locationData), SetOptions.merge())
-                                        }
+                                        try {
+                                            val userId = auth.currentUser?.uid
+                                            if (userId != null) {
+                                                val locationData = hashMapOf(
+                                                    "lat" to location.latitude,
+                                                    "lon" to location.longitude,
+                                                    "lastSeen" to com.google.firebase.Timestamp.now()
+                                                )
+                                                firestore.collection("users").document(userId)
+                                                    .set(hashMapOf("lastLocation" to locationData), SetOptions.merge())
+                                            }
+                                        } catch (e: Exception) {}
                                         
                                         apiService.getHyperlocalAqi(location.latitude, location.longitude, BuildConfig.API_KEY)
                                     } else { null }
@@ -163,7 +168,7 @@ class MainActivity : ComponentActivity() {
                                         
                                         withContext(Dispatchers.IO) {
                                             db.aqiDao().insertHourlyRecord(HourlyAqiEntity(date = dateStr, hour = hour, cityName = data.city.name, aqi = data.aqi))
-
+                                            
                                             val userId = auth.currentUser?.uid
                                             if (userId != null) {
                                                 val hourlyRecord = hashMapOf(
@@ -175,46 +180,12 @@ class MainActivity : ComponentActivity() {
                                                     .collection("history").document(dateStr)
                                                     .collection("hourly").document(hour.toString())
                                                     .set(hourlyRecord)
-                                                    
-                                                val dailyRef = firestore.collection("users").document(userId)
-                                                    .collection("history").document(dateStr)
-                                                
-                                                firestore.runTransaction { transaction ->
-                                                    val snapshot = transaction.get(dailyRef)
-                                                    val currentMax = snapshot.getLong("aqi") ?: 0L
-                                                    if (data.aqi > currentMax) {
-                                                        transaction.set(dailyRef, hashMapOf("aqi" to data.aqi, "cityName" to data.city.name, "date" to dateStr))
-                                                    }
-                                                }.await()
-                                            }
-
-                                            data.forecast?.daily?.let { details ->
-                                                val allDates = (details.pm25?.map { it.day } ?: emptyList()) +
-                                                               (details.pm10?.map { it.day } ?: emptyList()) +
-                                                               (details.o3?.map { it.day } ?: emptyList())
-                                                
-                                                allDates.distinct().forEach { day ->
-                                                    val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-                                                    if (day <= todayStr) {
-                                                        val pm25 = details.pm25?.find { it.day == day }?.avg
-                                                        val pm10 = details.pm10?.find { it.day == day }?.avg
-                                                        val o3 = details.o3?.find { it.day == day }?.avg
-                                                        val maxAvg = listOfNotNull(pm25, pm10, o3).maxOrNull()
-                                                        
-                                                        if (maxAvg != null) {
-                                                            val existing = db.aqiDao().getAqiRecordForDateAndCity(day, data.city.name)
-                                                            if (existing == null || maxAvg > existing.aqi) {
-                                                                db.aqiDao().insertAqiRecord(AqiEntity(day, data.city.name, maxAvg))
-                                                            }
-                                                        }
-                                                    }
-                                                }
                                             }
                                         }
                                     }
                                 } else { errorMessage = "Location not found." }
                             } else { errorMessage = "Could not determine location." }
-                        } catch (e: Exception) { errorMessage = "Connection error: ${e.localizedMessage}" } finally { isLoading = false }
+                        } catch (e: Exception) { errorMessage = "Connection error." } finally { isLoading = false }
                     }
                 }
 
@@ -223,7 +194,10 @@ class MainActivity : ComponentActivity() {
                     onResult = { permissions ->
                         if (permissions.getOrDefault(Manifest.permission.ACCESS_FINE_LOCATION, false) ||
                             permissions.getOrDefault(Manifest.permission.ACCESS_COARSE_LOCATION, false)
-                        ) { fetchData(false, null) } else {
+                        ) { 
+                            fetchData(false, null)
+                            setupBackgroundRecording()
+                        } else {
                             errorMessage = "Location permission required."
                             isLoading = false
                         }
@@ -262,7 +236,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun setupBackgroundRecording(forceUpdate: Boolean = false) {
+    private fun setupBackgroundRecording() {
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
@@ -270,12 +244,11 @@ class MainActivity : ComponentActivity() {
         val workRequest = PeriodicWorkRequestBuilder<AqiBackgroundWorker>(1, TimeUnit.HOURS)
             .setConstraints(constraints)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
-            .addTag("aqi_worker")
             .build()
 
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+        WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
             "AqiBackgroundRecorder",
-            if (forceUpdate) ExistingPeriodicWorkPolicy.UPDATE else ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.KEEP,
             workRequest
         )
     }

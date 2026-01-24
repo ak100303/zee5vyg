@@ -20,7 +20,9 @@ abstract class AqiDatabase : RoomDatabase() {
                     AqiDatabase::class.java,
                     "aqi_database"
                 )
-                .fallbackToDestructiveMigration() // Use this once to add the new table safely
+                // Re-enabled destructive migration. This is necessary during development
+                // to prevent crashes when the database structure (schema) changes.
+                .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
                 instance
