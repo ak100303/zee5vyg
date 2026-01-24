@@ -1,24 +1,31 @@
-name: Record AQI (scheduled)
+name: Hourly AQI Recorder
 
 on:
   schedule:
-    - cron: '0 * * * *'   # every hour on the hour
-  workflow_dispatch: {}    # manual trigger
+    - cron: '* * * * *' # Runs at the start of every hour (UTC)
+  workflow_dispatch: # Allows you to run it manually from the Actions tab
+  # re-register scheduler
+
 
 jobs:
   record:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
         with:
-          node-version: '18'
-      - name: Run record script
+          node-version: 24
+
+      - name: Install dependencies
+        run: |
+          npm install firebase-admin axios
+      - name: Run AQI Recorder Script
+        run: node scripts/record_aqi.js
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          USER_UID: ${{ secrets.USER_UID }}
           WAQI_TOKEN: ${{ secrets.WAQI_TOKEN }}
-        run: |
-          npm ci || true
-          node scripts/record_aqi.js
+          USER_UID: ${{ secrets.USER_UID }}
+
