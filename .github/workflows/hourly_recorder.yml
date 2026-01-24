@@ -2,7 +2,7 @@ name: Hourly AQI Recorder
 
 on:
   schedule:
-    - cron: '0 * * * *' # Runs exactly at the start of every hour (UTC)
+    - cron: '*/6 * * * *' # Runs exactly at the start of every hour (UTC)
   push:
     branches:
       - master # Triggers once on push to confirm logic is working
