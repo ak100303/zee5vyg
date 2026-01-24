@@ -2,8 +2,11 @@ name: Hourly AQI Recorder
 
 on:
   schedule:
-    - cron: '5 * * * *' # Runs at the start of every hour (UTC)
-  workflow_dispatch: # Allows you to run it manually from the Actions tab
+    - cron: '0 * * * *' # Runs exactly at the start of every hour (UTC)
+  push:
+    branches:
+      - master # Triggers once on push to confirm logic is working
+  workflow_dispatch: # Allows manual trigger from the Actions tab
 
 jobs:
   record:
@@ -20,6 +23,7 @@ jobs:
       - name: Install dependencies
         run: |
           npm install firebase-admin axios
+
       - name: Run AQI Recorder Script
         run: node scripts/record_aqi.js
         env:
