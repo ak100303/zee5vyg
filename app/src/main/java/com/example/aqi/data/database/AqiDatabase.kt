@@ -5,7 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [AqiEntity::class], version = 1, exportSchema = false)
+@Database(entities = [AqiEntity::class, HourlyAqiEntity::class], version = 3, exportSchema = false)
 abstract class AqiDatabase : RoomDatabase() {
     abstract fun aqiDao(): AqiDao
 
@@ -19,7 +19,9 @@ abstract class AqiDatabase : RoomDatabase() {
                     context.applicationContext,
                     AqiDatabase::class.java,
                     "aqi_database"
-                ).build()
+                )
+                .fallbackToDestructiveMigration() // Use this once to add the new table safely
+                .build()
                 INSTANCE = instance
                 instance
             }

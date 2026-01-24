@@ -3,4 +3,7 @@ plugins {
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.kotlin.android) apply false
     alias(libs.plugins.kotlin.compose) apply false
+    
+    // Add the Google Services plugin here so it can be used in the app module
+    id("com.google.gms.google-services") version "4.4.2" apply false
 }

@@ -3,6 +3,7 @@ package com.example.aqi
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -34,16 +35,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.lifecycleScope
+import androidx.work.*
 import com.example.aqi.data.database.AqiDatabase
 import com.example.aqi.data.database.AqiEntity
+import com.example.aqi.data.database.HourlyAqiEntity
 import com.example.aqi.ui.components.*
 import com.example.aqi.ui.theme.AQITheme
 import com.google.android.gms.location.*
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import com.google.gson.Gson
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
     private val MIN_REFRESH_INTERVAL = 5 * 60 * 1000 // 5 minutes
@@ -52,6 +62,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         installSplashScreen()
+        
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                FirebaseAuth.getInstance().signInAnonymously().await()
+                setupBackgroundRecording(forceUpdate = true)
+            } catch (e: Exception) {}
+        }
 
         setContent {
             AQITheme {
@@ -67,6 +84,8 @@ class MainActivity : ComponentActivity() {
                 val scope = rememberCoroutineScope()
                 val sharedPrefs = remember { context.getSharedPreferences("aqi_prefs", Context.MODE_PRIVATE) }
                 val db = remember { AqiDatabase.getDatabase(context) }
+                val firestore = remember { FirebaseFirestore.getInstance() }
+                val auth = remember { FirebaseAuth.getInstance() }
 
                 val fetchData = { force: Boolean, query: String? ->
                     scope.launch {
@@ -86,34 +105,43 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
 
-                            val response = if (query != null) {
-                                if (query.all { it.isDigit() }) {
-                                    apiService.getAqiByStationId(query, BuildConfig.API_KEY)
+                            val response = withContext(Dispatchers.IO) {
+                                if (query != null) {
+                                    if (query.all { it.isDigit() }) {
+                                        apiService.getAqiByStationId(query, BuildConfig.API_KEY)
+                                    } else {
+                                        apiService.getAqiByCityName(query, BuildConfig.API_KEY)
+                                    }
                                 } else {
-                                    apiService.getAqiByCityName(query, BuildConfig.API_KEY)
-                                }
-                            } else {
-                                val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
-                                
-                                // Improved Location Fetch: Try lastLocation then request fresh update
-                                var location = try {
-                                    fusedLocationClient.lastLocation.await()
-                                } catch (e: Exception) { null }
-
-                                if (location == null) {
-                                    // Force a single high-accuracy update
-                                    val locationRequest = CurrentLocationRequest.Builder()
-                                        .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
-                                        .build()
-                                    location = try {
-                                        fusedLocationClient.getCurrentLocation(locationRequest, null).await()
+                                    val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+                                    var location = try {
+                                        fusedLocationClient.lastLocation.await()
                                     } catch (e: Exception) { null }
-                                }
 
-                                if (location != null) {
-                                    apiService.getHyperlocalAqi(location.latitude, location.longitude, BuildConfig.API_KEY)
-                                } else {
-                                    null
+                                    if (location == null) {
+                                        val locationRequest = CurrentLocationRequest.Builder()
+                                            .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+                                            .build()
+                                        location = try {
+                                            fusedLocationClient.getCurrentLocation(locationRequest, null).await()
+                                        } catch (e: Exception) { null }
+                                    }
+
+                                    if (location != null) {
+                                        // BEACON LOGIC: Update cloud with current coordinates for GitHub Actions
+                                        val userId = auth.currentUser?.uid
+                                        if (userId != null) {
+                                            val locationData = hashMapOf(
+                                                "lat" to location.latitude,
+                                                "lon" to location.longitude,
+                                                "lastSeen" to com.google.firebase.Timestamp.now()
+                                            )
+                                            firestore.collection("users").document(userId)
+                                                .set(hashMapOf("lastLocation" to locationData), SetOptions.merge())
+                                        }
+                                        
+                                        apiService.getHyperlocalAqi(location.latitude, location.longitude, BuildConfig.API_KEY)
+                                    } else { null }
                                 }
                             }
 
@@ -129,59 +157,95 @@ class MainActivity : ComponentActivity() {
                                             .putLong("last_fetch_time", System.currentTimeMillis())
                                             .apply()
                                             
-                                        db.aqiDao().insertAqiRecord(
-                                            AqiEntity(
-                                                date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()),
-                                                aqi = data.aqi,
-                                                cityName = data.city.name
-                                            )
-                                        )
+                                        val now = Calendar.getInstance()
+                                        val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(now.time)
+                                        val hour = now.get(Calendar.HOUR_OF_DAY)
+                                        
+                                        withContext(Dispatchers.IO) {
+                                            db.aqiDao().insertHourlyRecord(HourlyAqiEntity(date = dateStr, hour = hour, cityName = data.city.name, aqi = data.aqi))
+
+                                            val userId = auth.currentUser?.uid
+                                            if (userId != null) {
+                                                val hourlyRecord = hashMapOf(
+                                                    "aqi" to data.aqi,
+                                                    "cityName" to data.city.name,
+                                                    "timestamp" to com.google.firebase.Timestamp.now()
+                                                )
+                                                firestore.collection("users").document(userId)
+                                                    .collection("history").document(dateStr)
+                                                    .collection("hourly").document(hour.toString())
+                                                    .set(hourlyRecord)
+                                                    
+                                                val dailyRef = firestore.collection("users").document(userId)
+                                                    .collection("history").document(dateStr)
+                                                
+                                                firestore.runTransaction { transaction ->
+                                                    val snapshot = transaction.get(dailyRef)
+                                                    val currentMax = snapshot.getLong("aqi") ?: 0L
+                                                    if (data.aqi > currentMax) {
+                                                        transaction.set(dailyRef, hashMapOf("aqi" to data.aqi, "cityName" to data.city.name, "date" to dateStr))
+                                                    }
+                                                }.await()
+                                            }
+
+                                            data.forecast?.daily?.let { details ->
+                                                val allDates = (details.pm25?.map { it.day } ?: emptyList()) +
+                                                               (details.pm10?.map { it.day } ?: emptyList()) +
+                                                               (details.o3?.map { it.day } ?: emptyList())
+                                                
+                                                allDates.distinct().forEach { day ->
+                                                    val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                                                    if (day <= todayStr) {
+                                                        val pm25 = details.pm25?.find { it.day == day }?.avg
+                                                        val pm10 = details.pm10?.find { it.day == day }?.avg
+                                                        val o3 = details.o3?.find { it.day == day }?.avg
+                                                        val maxAvg = listOfNotNull(pm25, pm10, o3).maxOrNull()
+                                                        
+                                                        if (maxAvg != null) {
+                                                            val existing = db.aqiDao().getAqiRecordForDateAndCity(day, data.city.name)
+                                                            if (existing == null || maxAvg > existing.aqi) {
+                                                                db.aqiDao().insertAqiRecord(AqiEntity(day, data.city.name, maxAvg))
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
-                                } else {
-                                    errorMessage = "Location not found: ${response.data.asString}"
-                                }
-                            } else {
-                                errorMessage = "Could not determine location. Please ensure GPS is enabled and you have a signal."
-                            }
-                        } catch (e: Exception) {
-                            errorMessage = "Connection error: ${e.localizedMessage}"
-                        } finally {
-                            isLoading = false
-                        }
+                                } else { errorMessage = "Location not found." }
+                            } else { errorMessage = "Could not determine location." }
+                        } catch (e: Exception) { errorMessage = "Connection error: ${e.localizedMessage}" } finally { isLoading = false }
                     }
                 }
 
-                val locationLauncher = rememberLauncherForActivityResult(
+                val permissionsLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestMultiplePermissions(),
                     onResult = { permissions ->
                         if (permissions.getOrDefault(Manifest.permission.ACCESS_FINE_LOCATION, false) ||
                             permissions.getOrDefault(Manifest.permission.ACCESS_COARSE_LOCATION, false)
-                        ) {
-                            fetchData(false, null)
-                        } else {
-                            errorMessage = "Location permission is required."
+                        ) { fetchData(false, null) } else {
+                            errorMessage = "Location permission required."
                             isLoading = false
                         }
                     }
                 )
 
                 LaunchedEffect(Unit) {
-                    locationLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                    val requiredPermissions = mutableListOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        requiredPermissions.add(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                    permissionsLauncher.launch(requiredPermissions.toTypedArray())
                 }
 
                 if (showSearchDialog) {
                     LocationSearchDialog(
                         onDismiss = { showSearchDialog = false },
-                        onSearch = { query ->
-                            customQuery = query
-                            fetchData(true, query)
-                            showSearchDialog = false
-                        },
-                        onReset = {
-                            customQuery = null
-                            fetchData(true, null)
-                            showSearchDialog = false
-                        }
+                        onSearch = { query -> customQuery = query; fetchData(true, query); showSearchDialog = false },
+                        onReset = { customQuery = null; fetchData(true, null); showSearchDialog = false }
                     )
                 }
 
@@ -196,6 +260,24 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun setupBackgroundRecording(forceUpdate: Boolean = false) {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        val workRequest = PeriodicWorkRequestBuilder<AqiBackgroundWorker>(1, TimeUnit.HOURS)
+            .setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
+            .addTag("aqi_worker")
+            .build()
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "AqiBackgroundRecorder",
+            if (forceUpdate) ExistingPeriodicWorkPolicy.UPDATE else ExistingPeriodicWorkPolicy.KEEP,
+            workRequest
+        )
     }
 }
 
@@ -218,31 +300,17 @@ fun MainScreen(
                 }
             }
             aqiData != null -> {
-                val (topColor, bottomColor) = when {
-                    aqiData.aqi <= 50 -> Color(0xFF1E3C72) to Color(0xFF2A5298)
-                    aqiData.aqi <= 100 -> Color(0xFF3A3841) to Color(0xFF534741)
-                    aqiData.aqi <= 150 -> Color(0xFF5D4037) to Color(0xFF4E342E)
-                    else -> Color(0xFF4A2321) to Color(0xFF212121)
-                }
-
-                val animatedTopColor by animateColorAsState(targetValue = topColor, animationSpec = tween(2000), label = "")
-                val animatedBottomColor by animateColorAsState(targetValue = bottomColor, animationSpec = tween(2000), label = "")
-
                 val pagerState = rememberPagerState { 4 }
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Brush.verticalGradient(listOf(animatedTopColor, animatedBottomColor)))
-                ) {
-                    AnimatedBackground()
+                Box(modifier = Modifier.fillMaxSize()) {
+                    AnimatedBackground(aqi = aqiData.aqi)
                     
                     HorizontalPager(state = pagerState) { page ->
                         when (page) {
                             0 -> CurrentAqiScreen(aqiData, onRefresh, onStationLongPress)
                             1 -> ForecastScreen(aqiData = aqiData)
                             2 -> ExerciseScreen(aqi = aqiData.aqi)
-                            3 -> CalendarScreen(forecasts = aqiData.forecast?.daily?.pm25 ?: emptyList())
+                            3 -> CalendarScreen(cityName = aqiData.city.name, forecasts = aqiData.forecast?.daily)
                         }
                     }
 
@@ -282,7 +350,7 @@ fun CurrentAqiScreen(aqiData: AqiData, onRefresh: () -> Unit, onStationLongPress
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.height(40.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -299,11 +367,13 @@ fun CurrentAqiScreen(aqiData: AqiData, onRefresh: () -> Unit, onStationLongPress
                 Text(
                     text = "LOCATION (Long-press to change):",
                     style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
                     color = Color.White.copy(alpha = 0.5f)
                 )
                 Text(
                     text = stationName,
                     style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
                     color = Color.White,
                     maxLines = 1
                 )
@@ -313,36 +383,36 @@ fun CurrentAqiScreen(aqiData: AqiData, onRefresh: () -> Unit, onStationLongPress
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         Text(
             "Air Quality Index",
             style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.Black,
             color = Color.White
         )
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
         AqiGauge(aqi = liveAqi)
 
         Row(
-            modifier = Modifier.padding(vertical = 16.dp),
+            modifier = Modifier.padding(vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             MetricBadge("PM2.5", aqiData.iaqi.pm25?.value?.toInt()?.toString() ?: "--")
             MetricBadge("PM10", aqiData.iaqi.pm10?.value?.toInt()?.toString() ?: "--")
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         HourlyPredictionCard(aqiData = aqiData)
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         aqiData.forecast?.daily?.let {
             PredictionCard(forecastDetails = it, liveAqi = liveAqi)
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         PrecautionsCard(aqi = liveAqi)
 
         Spacer(modifier = Modifier.height(40.dp))
@@ -356,8 +426,8 @@ fun MetricBadge(label: String, value: String) {
         shape = RoundedCornerShape(12.dp)
     ) {
         Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-            Text(text = "$label: ", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
-            Text(text = value, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Text(text = "$label: ", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f), fontWeight = FontWeight.Bold)
+            Text(text = value, fontSize = 12.sp, fontWeight = FontWeight.Black, color = Color.White)
         }
     }
 }
@@ -371,7 +441,7 @@ fun LocationSearchDialog(onDismiss: () -> Unit, onSearch: (String) -> Unit, onRe
         title = { Text("Search Location") },
         text = {
             Column {
-                Text("Enter a city name (e.g. \"London\") or a specific Station ID.")
+                Text("Enter a city name or Station ID.")
                 Spacer(modifier = Modifier.height(16.dp))
                 TextField(
                     value = query,

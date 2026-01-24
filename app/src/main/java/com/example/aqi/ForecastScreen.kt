@@ -1,18 +1,24 @@
 package com.example.aqi
 
+import android.os.Build
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -58,37 +64,50 @@ fun ForecastScreen(aqiData: AqiData) {
         Text(
             text = "PM2.5 Forecast",
             style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.Black, // Bold
             color = Color.White
         )
         
         Text(
             text = "Source: ${aqiData.city.name}",
             style = MaterialTheme.typography.labelSmall,
-            color = Color.White.copy(alpha = 0.5f)
+            fontWeight = FontWeight.Bold, // Bold
+            color = Color.White.copy(alpha = 0.6f)
         )
         
         Text(
             text = dateRange,
             style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.7f)
+            fontWeight = FontWeight.Bold, // Bold
+            color = Color.White.copy(alpha = 0.8f)
         )
         
         Spacer(modifier = Modifier.height(16.dp))
         
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.2f))
-        ) {
-            if (forecasts.isNotEmpty()) {
-                AqiForecastGraph(
-                    forecasts = forecasts,
-                    modifier = Modifier
-                        .padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 32.dp)
-                        .fillMaxWidth()
-                        .height(250.dp)
-                )
+        // --- UPGRADED FROSTED GLASS CONTAINER ---
+        Box(modifier = Modifier.fillMaxWidth().height(280.dp)) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .blur(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 20.dp else 0.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color.Black.copy(alpha = 0.25f))
+            )
+            
+            Card(
+                modifier = Modifier.fillMaxSize(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                border = BorderStroke(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.4f), Color.White.copy(alpha = 0.1f))))
+            ) {
+                if (forecasts.isNotEmpty()) {
+                    AqiForecastGraph(
+                        forecasts = forecasts,
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxSize()
+                    )
+                }
             }
         }
 
@@ -134,8 +153,8 @@ fun AqiForecastGraph(forecasts: List<ForecastDay>, modifier: Modifier = Modifier
             drawText(
                 textMeasurer = textMeasurer,
                 text = dayText,
-                topLeft = Offset(x - (textMeasurer.measure(AnnotatedString(dayText)).size.width / 2), graphHeight + 5.dp.toPx()),
-                style = TextStyle(color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                topLeft = Offset(x - (textMeasurer.measure(AnnotatedString(dayText)).size.width / 2), graphHeight + 10.dp.toPx()),
+                style = TextStyle(color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
             )
         }
 
@@ -172,9 +191,9 @@ fun AqiForecastGraph(forecasts: List<ForecastDay>, modifier: Modifier = Modifier
             val minText = "Min: ${forecast.min}"
             val maxText = "Max: ${forecast.max}"
 
-            val avgTextLayout = textMeasurer.measure(AnnotatedString(avgText), style = TextStyle(color = Color.White, fontWeight = FontWeight.Bold))
-            val minTextLayout = textMeasurer.measure(AnnotatedString(minText), style = TextStyle(color = Color.White.copy(alpha = 0.8f)))
-            val maxTextLayout = textMeasurer.measure(AnnotatedString(maxText), style = TextStyle(color = Color.White.copy(alpha = 0.8f)))
+            val avgTextLayout = textMeasurer.measure(AnnotatedString(avgText), style = TextStyle(color = Color.White, fontWeight = FontWeight.Black))
+            val minTextLayout = textMeasurer.measure(AnnotatedString(minText), style = TextStyle(color = Color.White.copy(alpha = 0.9f), fontWeight = FontWeight.Bold))
+            val maxTextLayout = textMeasurer.measure(AnnotatedString(maxText), style = TextStyle(color = Color.White.copy(alpha = 0.9f), fontWeight = FontWeight.Bold))
 
             val baseOffsetX = if (isNearEnd) -(avgTextLayout.size.width.toFloat()) else 0f
 

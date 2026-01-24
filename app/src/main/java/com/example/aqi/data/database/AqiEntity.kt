@@ -1,11 +1,12 @@
 package com.example.aqi.data.database
 
 import androidx.room.Entity
-import androidx.room.PrimaryKey
 
-@Entity(tableName = "aqi_history")
+// We remove the PrimaryKey from 'date' and create a composite primary key
+// This allows storing different AQI values for different cities on the same day.
+@Entity(tableName = "aqi_history", primaryKeys = ["date", "cityName"])
 data class AqiEntity(
-    @PrimaryKey val date: String, // Format: "yyyy-MM-dd"
-    val aqi: Int,
-    val cityName: String
+    val date: String, // Format: "yyyy-MM-dd"
+    val cityName: String,
+    val aqi: Int
 )
