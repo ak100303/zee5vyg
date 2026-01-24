@@ -14,7 +14,7 @@ const token = process.env.WAQI_TOKEN;
 async function record() {
   try {
     // 1. BEACON LOGIC: Read the last known GPS coordinates from the user's profile
-    const userDoc = await db.collection('users').document(uid).get();
+    const userDoc = await db.collection('users').doc(uid).get();
     const lastLocation = userDoc.exists ? userDoc.data().lastLocation : null;
 
     let apiUrl;
@@ -35,6 +35,7 @@ async function record() {
 
     const data = response.data.data;
     const now = new Date();
+    // Format: yyyy-MM-dd
     const dateStr = now.toISOString().split('T')[0];
     const hour = now.getHours();
 
@@ -45,11 +46,11 @@ async function record() {
       date: dateStr
     };
 
-    const dayDocRef = db.collection('users').document(uid)
-      .collection('history').document(dateStr);
+    const dayDocRef = db.collection('users').doc(uid)
+      .collection('history').doc(dateStr);
 
     // 3. Save the hourly snapshot
-    await dayDocRef.collection('hourly').document(hour.toString()).set(record);
+    await dayDocRef.collection('hourly').doc(hour.toString()).set(record);
 
     // 4. Update the daily maximum AQI (High-Water Mark logic)
     await db.runTransaction(async (transaction) => {
