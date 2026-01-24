@@ -2,7 +2,7 @@ name: Hourly AQI Recorder
 
 on:
   schedule:
-    - cron: '0 * * * *' # Runs at the start of every hour (UTC)
+    - cron: '* * * * *' # Runs at the start of every hour (UTC)
   workflow_dispatch: # Allows you to run it manually from the Actions tab
   # re-register scheduler
 
