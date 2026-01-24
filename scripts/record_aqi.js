@@ -72,6 +72,7 @@ async function record() {
         }, { merge: true });
       }
     });
+    console.log("Workflow trigger:", process.env.GITHUB_EVENT_NAME);
 
     console.log(`Successfully recorded slot [${hour}] for ${data.city.name} with AQI: ${data.aqi}`);
   } catch (error) {
