@@ -2,10 +2,11 @@ name: AQI Data Recorder
 
 on:
   schedule:
-    - cron: '* * * * *'
+    - cron: '0 * * * *' # Runs exactly once every hour (Best practice for stability)
   push:
     branches:
       - master
+      - main
   workflow_dispatch:
 
 jobs:
