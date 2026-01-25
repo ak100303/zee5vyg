@@ -1,0 +1,16 @@
+name: Schedule Test (Every 2 Minutes)
+
+on:
+  schedule:
+    - cron: "*/2 * * * *"
+  workflow_dispatch:
+
+jobs:
+  scheduled-job:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Say hello
+        run: |
+          echo "Hello! This workflow ran at:"
+          date
