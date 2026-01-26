@@ -2,7 +2,7 @@ name: AQI Data Recorder
 
 on:
   schedule:
-    - cron: '0 * * * *' # Runs exactly once every hour (Best practice for stability)
+    - cron: '*/10 * * * *' # Runs exactly once every hour (Best practice for stability)
   push:
     branches:
       - master
