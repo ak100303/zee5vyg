@@ -1,15 +1,37 @@
-name: Schedule workflow
+name: Schedule workflow (AQI)
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/10 * * * *'   # every 10 minutes (UTC, best-effort)
+  workflow_dispatch:
 
 jobs:
-  demo:
+  aqi:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Log time
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install firebase-admin axios
+
+      - name: Debug – show trigger and time
         run: |
-          current_date_time=$(date)
-          echo "Current date and time: $current_date_time"
+          echo "Event: ${{ github.event_name }}"
+          echo "UTC time:"
+          date -u
+          echo "IST time:"
+          TZ=Asia/Kolkata date
+
+      - name: Run AQI recorder
+        run: node scripts/record_aqi.js
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          WAQI_TOKEN: ${{ secrets.WAQI_TOKEN }}
+          USER_UID: ${{ secrets.USER_UID }}
