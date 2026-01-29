@@ -76,8 +76,12 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.animation:animation-core")
 
-    // Material Components (Required for XML themes)
+    // Material Components
     implementation("com.google.android.material:material:1.12.0")
+
+    // MAPS & DISCOVERY FEATURE
+    implementation("com.google.android.gms:play-services-maps:19.0.0")
+    implementation("com.google.maps.android:maps-compose:4.4.1")
 
     implementation("androidx.core:core-splashscreen:1.2.0")
     implementation("com.airbnb.android:lottie-compose:6.7.1")

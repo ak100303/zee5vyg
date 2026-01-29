@@ -56,21 +56,19 @@ import java.util.*
 import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
-    private val MIN_REFRESH_INTERVAL = 5 * 60 * 1000 // 5 minutes
+    private val MIN_REFRESH_INTERVAL = 5 * 60 * 1000 
 
     @SuppressLint("MissingPermission")
     override fun onCreate(savedInstanceState: Bundle?) {
-        // 1. Install Splash Screen BEFORE super.onCreate()
         installSplashScreen()
-        
         super.onCreate(savedInstanceState)
         
-        // 2. Perform background init safely
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 if (FirebaseAuth.getInstance().currentUser == null) {
                     FirebaseAuth.getInstance().signInAnonymously().await()
                 }
+                setupBackgroundRecording()
             } catch (e: Exception) {}
         }
 
@@ -273,7 +271,7 @@ fun MainScreen(
                 }
             }
             aqiData != null -> {
-                val pagerState = rememberPagerState { 4 }
+                val pagerState = rememberPagerState { 4 } // BACK TO 4 PAGES
 
                 Box(modifier = Modifier.fillMaxSize()) {
                     AnimatedBackground(aqi = aqiData.aqi)
