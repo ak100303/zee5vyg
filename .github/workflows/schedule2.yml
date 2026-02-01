@@ -34,4 +34,5 @@ jobs:
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           WAQI_TOKEN: ${{ secrets.WAQI_TOKEN }}
+          OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
           USER_UID: ${{ secrets.USER_UID }}
