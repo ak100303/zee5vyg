@@ -5,7 +5,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [AqiEntity::class, HourlyAqiEntity::class], version = 3, exportSchema = false)
+// Incremented version to 4 to support the new 'dataSource' field in HourlyAqiEntity
+@Database(entities = [AqiEntity::class, HourlyAqiEntity::class], version = 4, exportSchema = false)
 abstract class AqiDatabase : RoomDatabase() {
     abstract fun aqiDao(): AqiDao
 
@@ -20,8 +21,7 @@ abstract class AqiDatabase : RoomDatabase() {
                     AqiDatabase::class.java,
                     "aqi_database"
                 )
-                // Re-enabled destructive migration. This is necessary during development
-                // to prevent crashes when the database structure (schema) changes.
+                // Use destructive migration to automatically handle the schema change
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance

@@ -3,6 +3,7 @@ package com.example.aqi
 import com.google.gson.JsonElement
 import com.google.gson.annotations.SerializedName
 
+// --- WAQI MODELS ---
 data class AqiResponse(
     val status: String,
     val data: JsonElement
@@ -50,4 +51,26 @@ data class ForecastDay(
     val day: String,
     val max: Int,
     val min: Int
+)
+
+// --- OPENWEATHER MODELS ---
+data class OpenWeatherResponse(
+    val list: List<OwAirQualityData>
+)
+
+data class OwAirQualityData(
+    val main: OwMain,
+    val components: OwComponents,
+    val dt: Long
+)
+
+data class OwMain(
+    val aqi: Int // 1=Good, 2=Fair, 3=Moderate, 4=Poor, 5=Very Poor
+)
+
+data class OwComponents(
+    val pm2_5: Float,
+    val pm10: Float,
+    val no2: Float,
+    val o3: Float
 )

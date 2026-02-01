@@ -66,7 +66,6 @@ fun CalendarScreen(cityName: String, forecasts: ForecastDetails?) {
         helper.get(Calendar.DAY_OF_WEEK) - 1
     }
 
-    // CLOUD SYNC: Automatically download data from Firebase
     LaunchedEffect(viewDate, selectedDayOfMonth) {
         val userId = auth.currentUser?.uid ?: return@LaunchedEffect
         val cal = viewDate.clone() as Calendar
@@ -76,7 +75,6 @@ fun CalendarScreen(cityName: String, forecasts: ForecastDetails?) {
         
         scope.launch {
             try {
-                // 1. Sync all daily peaks for the month
                 val snapshot = firestore.collection("users").document(userId)
                     .collection("history")
                     .whereGreaterThanOrEqualTo("date", "$monthStr-01")
@@ -92,7 +90,6 @@ fun CalendarScreen(cityName: String, forecasts: ForecastDetails?) {
                     }
                 }
 
-                // 2. Sync hourly details for the currently SELECTED day
                 val hourlySnapshot = firestore.collection("users").document(userId)
                     .collection("history").document(selectedDateStr)
                     .collection("hourly").get().await()
@@ -101,15 +98,15 @@ fun CalendarScreen(cityName: String, forecasts: ForecastDetails?) {
                     val hour = hDoc.id.toIntOrNull() ?: 0
                     val hAqi = hDoc.getLong("aqi")?.toInt() ?: 0
                     val hCity = hDoc.getString("cityName") ?: ""
+                    val source = hDoc.getString("dataSource") ?: "unknown"
                     if (hCity.isNotEmpty()) {
-                        db.aqiDao().insertHourlyRecord(HourlyAqiEntity(0, selectedDateStr, hour, hCity, hAqi))
+                        db.aqiDao().insertHourlyRecord(HourlyAqiEntity(0, selectedDateStr, hour, hCity, hAqi, source))
                     }
                 }
             } catch (e: Exception) {}
         }
     }
 
-    // Local DB Observers: Unified (No city filter)
     val monthQuery = remember(viewDate) { SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(viewDate.time) + "%" }
     val historyRecords by db.aqiDao().getAqiRecordsForMonth(monthQuery).collectAsState(initial = emptyList<AqiEntity>())
 
@@ -126,9 +123,7 @@ fun CalendarScreen(cityName: String, forecasts: ForecastDetails?) {
             val day = entity.date.substringAfterLast("-").toIntOrNull()
             if (day != null) {
                 val currentMax = map[day] ?: 0
-                if (entity.aqi > currentMax) {
-                    map[day] = entity.aqi
-                }
+                if (entity.aqi > currentMax) map[day] = entity.aqi
             }
         }
         if (isCurrentMonth && forecasts != null) {
@@ -156,19 +151,12 @@ fun CalendarScreen(cityName: String, forecasts: ForecastDetails?) {
         map
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState())
-    ) {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
         Spacer(modifier = Modifier.height(40.dp))
-        
         Text(text = "Historical Record", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = Color.White)
-        Text(text = "Unified Journey Tracking", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, color = Color(0xFF00E676))
+        Text(text = "Multi-Source Journey Active", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, color = Color(0xFF00E676))
         
         Spacer(modifier = Modifier.height(16.dp))
-        
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { viewDate = (viewDate.clone() as Calendar).apply { add(Calendar.MONTH, -1) } }) {
                 Icon(Icons.Default.KeyboardArrowLeft, contentDescription = "Previous", tint = Color.White)
@@ -180,7 +168,6 @@ fun CalendarScreen(cityName: String, forecasts: ForecastDetails?) {
         }
         
         Spacer(modifier = Modifier.height(24.dp))
-        
         Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))) {
             Box(modifier = Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.25f)).blur(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 20.dp else 0.dp))
             Column(modifier = Modifier.padding(16.dp)) {
@@ -190,27 +177,13 @@ fun CalendarScreen(cityName: String, forecasts: ForecastDetails?) {
                     }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
-                
-                // Fixed: Increased height to 300.dp to prevent cutting off the 6th row of dates
                 Box(modifier = Modifier.height(300.dp)) {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(7),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxSize(),
-                        userScrollEnabled = false
-                    ) {
+                    LazyVerticalGrid(columns = GridCells.Fixed(7), verticalArrangement = Arrangement.spacedBy(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize(), userScrollEnabled = false) {
                         items(firstDayOfWeek) { Box(modifier = Modifier.size(44.dp)) }
                         items(daysInMonth) { index ->
                             val dayOfMonth = index + 1
                             val isFuture = if (isCurrentMonth) dayOfMonth > today.get(Calendar.DAY_OF_MONTH) else viewDate.after(today)
-                            CalendarDayCell(
-                                day = dayOfMonth,
-                                aqi = aqiMap[dayOfMonth],
-                                isFuture = isFuture,
-                                isSelected = selectedDayOfMonth == dayOfMonth,
-                                onClick = { if (!isFuture) selectedDayOfMonth = dayOfMonth }
-                            )
+                            CalendarDayCell(day = dayOfMonth, aqi = aqiMap[dayOfMonth], isFuture = isFuture, isSelected = selectedDayOfMonth == dayOfMonth, onClick = { if (!isFuture) selectedDayOfMonth = dayOfMonth })
                         }
                     }
                 }
@@ -220,12 +193,10 @@ fun CalendarScreen(cityName: String, forecasts: ForecastDetails?) {
         Spacer(modifier = Modifier.height(24.dp))
         Text(text = "Timely Trends: Day $selectedDayOfMonth", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, color = Color.White)
         Spacer(modifier = Modifier.height(12.dp))
-        
         DailyHourlyChart(hourlyRecords = hourlyRecords)
-        
         Spacer(modifier = Modifier.height(24.dp))
         CalendarLegend()
-        Spacer(modifier = Modifier.height(80.dp)) // Added more space at the bottom for better scrolling
+        Spacer(modifier = Modifier.height(80.dp))
     }
 }
 
@@ -262,8 +233,15 @@ fun DailyHourlyChart(hourlyRecords: List<HourlyAqiEntity>) {
             if (selectedBarIndex != -1) {
                 val record = hourlyRecords.find { it.hour == selectedBarIndex }
                 val timeLabel = when { selectedBarIndex == 0 -> "12 AM"; selectedBarIndex < 12 -> "$selectedBarIndex AM"; selectedBarIndex == 12 -> "12 PM"; else -> "${selectedBarIndex-12} PM" }
-                val displayLoc = record?.cityName ?: "No Record"
-                Text(text = "Time: $timeLabel | AQI: ${record?.aqi ?: "--"} | Loc: $displayLoc", style = MaterialTheme.typography.labelMedium, color = Color.White, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 8.dp).fillMaxWidth(), textAlign = TextAlign.Center)
+                val source = record?.dataSource?.replaceFirstChar { it.uppercase() } ?: "Unknown"
+                Text(
+                    text = "Time: $timeLabel | AQI: ${record?.aqi ?: "--"} | Source: $source", 
+                    style = MaterialTheme.typography.labelMedium, 
+                    color = Color.White, 
+                    fontWeight = FontWeight.ExtraBold, 
+                    modifier = Modifier.padding(top = 8.dp).fillMaxWidth(), 
+                    textAlign = TextAlign.Center
+                )
             }
         }
     }
@@ -281,35 +259,11 @@ fun CalendarDayCell(day: Int, aqi: Int?, isFuture: Boolean, isSelected: Boolean,
         else -> Color(0xFFD500F9)
     }
     val contentColor = if (aqi != null && aqi in 51..100) Color.Black else Color.White
-    Box(
-        modifier = Modifier
-            .aspectRatio(1f)
-            .background(backgroundColor, RoundedCornerShape(12.dp))
-            .border(
-                width = 2.dp,
-                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.1f),
-                shape = RoundedCornerShape(12.dp)
-            )
-            .clickable { onClick() },
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(
-                text = day.toString(),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Black,
-                color = contentColor.copy(alpha = 0.9f)
-            )
+    Box(modifier = Modifier.aspectRatio(1f).background(backgroundColor, RoundedCornerShape(12.dp)).border(width = 2.dp, color = if (isSelected) Color.White else Color.White.copy(alpha = 0.1f), shape = RoundedCornerShape(12.dp)).clickable { onClick() }, contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Text(text = day.toString(), fontSize = 12.sp, fontWeight = FontWeight.Black, color = contentColor.copy(alpha = 0.9f))
             if (aqi != null) {
-                Text(
-                    text = aqi.toString(),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = contentColor
-                )
+                Text(text = aqi.toString(), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, color = contentColor)
             }
         }
     }

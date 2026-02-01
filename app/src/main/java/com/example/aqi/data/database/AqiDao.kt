@@ -25,4 +25,8 @@ interface AqiDao {
 
     @Query("SELECT DISTINCT cityName FROM aqi_history")
     fun getAllRecordedCities(): Flow<List<String>>
+
+    // Helper for Autonomous Prediction Engine
+    @Query("SELECT * FROM aqi_hourly_history ORDER BY id DESC LIMIT 2")
+    suspend fun getLastTwoRecords(): List<HourlyAqiEntity>
 }

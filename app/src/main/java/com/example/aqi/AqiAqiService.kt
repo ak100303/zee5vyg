@@ -7,6 +7,7 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface AqiApiService {
+    // WAQI Endpoints
     @GET("feed/geo:{lat};{lon}/")
     suspend fun getHyperlocalAqi(
         @Path("lat") lat: Double,
@@ -25,6 +26,14 @@ interface AqiApiService {
         @Path("city") city: String,
         @Query("token") token: String
     ): AqiResponse
+
+    // OPENWEATHER FAILOVER ENDPOINT (Updated to HTTPS)
+    @GET("https://api.openweathermap.org/data/2.5/air_pollution")
+    suspend fun getOpenWeatherAqi(
+        @Query("lat") lat: Double,
+        @Query("lon") lon: Double,
+        @Query("appid") apiKey: String
+    ): OpenWeatherResponse
 
     companion object {
         private const val BASE_URL = "https://api.waqi.info/"

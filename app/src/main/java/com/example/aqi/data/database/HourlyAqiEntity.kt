@@ -9,5 +9,6 @@ data class HourlyAqiEntity(
     val date: String, // "yyyy-MM-dd"
     val hour: Int,   // 0-23
     val cityName: String,
-    val aqi: Int
+    val aqi: Int,
+    val dataSource: String = "waqi" // Added to track source (waqi, openweather, trend_prediction)
 )
