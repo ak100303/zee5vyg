@@ -71,8 +71,8 @@ async function record() {
 
       // 5. SAVE TO FIREBASE
       await db.collection('users').doc(uid)
-        .collection('history').document(dateStr)
-        .collection('hourly').document(hour.toString())
+        .collection('history').doc(dateStr)
+        .collection('hourly').doc(hour.toString())
         .set(record);
 
       console.log(`Successfully recorded ${aqiValue} from ${source} at ${hour}:00`);
