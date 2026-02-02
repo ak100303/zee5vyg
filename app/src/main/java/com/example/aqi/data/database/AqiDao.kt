@@ -20,13 +20,16 @@ interface AqiDao {
     @Query("SELECT * FROM aqi_hourly_history WHERE date = :date ORDER BY hour ASC")
     fun getHourlyRecordsForDay(date: String): Flow<List<HourlyAqiEntity>>
 
+    // Used for Gap Filling: Gets raw list without Flow
+    @Query("SELECT * FROM aqi_hourly_history WHERE date = :date ORDER BY hour ASC")
+    suspend fun getHourlyRecordsListForDay(date: String): List<HourlyAqiEntity>
+
     @Query("SELECT * FROM aqi_history WHERE date = :date AND cityName = :cityName LIMIT 1")
     suspend fun getAqiRecordForDateAndCity(date: String, cityName: String): AqiEntity?
 
     @Query("SELECT DISTINCT cityName FROM aqi_history")
     fun getAllRecordedCities(): Flow<List<String>>
 
-    // Helper for Autonomous Prediction Engine
     @Query("SELECT * FROM aqi_hourly_history ORDER BY id DESC LIMIT 2")
     suspend fun getLastTwoRecords(): List<HourlyAqiEntity>
 }

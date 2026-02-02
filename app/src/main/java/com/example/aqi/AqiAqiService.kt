@@ -3,6 +3,7 @@ package com.example.aqi
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.Path
 import retrofit2.http.Query
 
@@ -27,13 +28,30 @@ interface AqiApiService {
         @Query("token") token: String
     ): AqiResponse
 
-    // OPENWEATHER FAILOVER ENDPOINT (Updated to HTTPS)
+    // OPENWEATHER AIR POLLUTION
     @GET("https://api.openweathermap.org/data/2.5/air_pollution")
     suspend fun getOpenWeatherAqi(
         @Query("lat") lat: Double,
         @Query("lon") lon: Double,
         @Query("appid") apiKey: String
     ): OpenWeatherResponse
+
+    // OPENWEATHER 5-DAY / 3-HOUR FORECAST (For Trend & Weather)
+    @GET("https://api.openweathermap.org/data/2.5/forecast")
+    suspend fun getOpenWeatherForecast(
+        @Query("lat") lat: Double,
+        @Query("lon") lon: Double,
+        @Query("units") units: String = "metric",
+        @Query("appid") apiKey: String
+    ): OwForecastResponse
+
+    // OPENAQ FAILOVER
+    @GET("https://api.openaq.org/v2/latest")
+    suspend fun getOpenAqiData(
+        @Query("coordinates") coords: String,
+        @Query("radius") radius: Int = 10000,
+        @Header("X-API-Key") apiKey: String
+    ): OpenAqiResponse
 
     companion object {
         private const val BASE_URL = "https://api.waqi.info/"

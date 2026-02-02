@@ -3,6 +3,7 @@ package com.example.aqi
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.location.Geocoder
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
@@ -24,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -58,6 +60,7 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
 
 class MainActivity : ComponentActivity() {
     private val MIN_REFRESH_INTERVAL = 5 * 60 * 1000 
@@ -84,6 +87,10 @@ class MainActivity : ComponentActivity() {
                 var isOffline by remember { mutableStateOf(false) }
                 var showSearchDialog by remember { mutableStateOf(false) }
                 var customQuery by remember { mutableStateOf<String?>(null) }
+                
+                // DISCLAIMER STATE
+                var showBackupDisclaimer by remember { mutableStateOf(false) }
+                var hasShownDisclaimerThisSession by remember { mutableStateOf(false) }
 
                 val context = LocalContext.current
                 val apiService = remember { AqiApiService.create() }
@@ -107,106 +114,108 @@ class MainActivity : ComponentActivity() {
                         val hasInternet = checkInternet()
                         
                         try {
-                            val lastFetch = sharedPrefs.getLong("last_fetch_time", 0L)
-                            val currentTime = System.currentTimeMillis()
-
                             if (aqiData == null) {
-                                sharedPrefs.getString("cached_nearby_aqi", null)?.let {
-                                    aqiData = gson.fromJson(it, AqiData::class.java)
-                                }
+                                sharedPrefs.getString("cached_nearby_aqi", null)?.let { aqiData = gson.fromJson(it, AqiData::class.java) }
                             }
 
                             if (!hasInternet) {
-                                isOffline = true
-                                isLoading = false
-                                return@launch
+                                isOffline = true; isLoading = false; return@launch
                             }
 
-                            if (!force && query == null && currentTime - lastFetch < MIN_REFRESH_INTERVAL) {
-                                isLoading = false
-                                return@launch
-                            }
-
-                            val response = withContext(Dispatchers.IO) {
+                            val resultPair = withContext(Dispatchers.IO) {
                                 try {
-                                    if (query != null) {
-                                        apiService.getAqiByCityName(query, BuildConfig.API_KEY)
-                                    } else {
-                                        val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
-                                        val location = fusedLocationClient.lastLocation.await() ?:
-                                            fusedLocationClient.getCurrentLocation(CurrentLocationRequest.Builder().setPriority(Priority.PRIORITY_HIGH_ACCURACY).build(), null).await()
+                                    val owKey = BuildConfig.OPEN_WEATHER_KEY
+                                    val oaqKey = BuildConfig.OPEN_AQ_KEY
+                                    var finalRes: AqiResponse? = null
+                                    var finalSource = "waqi"
 
-                                        if (location != null) {
-                                            // Beacon Update
-                                            val userId = auth.currentUser?.uid
-                                            if (userId != null) {
-                                                firestore.collection("users").document(userId).set(hashMapOf("lastLocation" to hashMapOf("lat" to location.latitude, "lon" to location.longitude)), SetOptions.merge())
-                                            }
+                                    val fused = LocationServices.getFusedLocationProviderClient(context)
+                                    val loc = fused.lastLocation.await() ?: fused.getCurrentLocation(CurrentLocationRequest.Builder().setPriority(Priority.PRIORITY_HIGH_ACCURACY).build(), null).await()
 
-                                            // Multi-Tier Fetch
-                                            var source = "waqi"
-                                            var waqi = try { apiService.getHyperlocalAqi(location.latitude, location.longitude, BuildConfig.API_KEY) } catch (e: Exception) { null }
-                                            
-                                            if (waqi == null || waqi.status != "ok") {
-                                                val owKey = BuildConfig.OPEN_WEATHER_KEY
-                                                if (owKey.isNotEmpty()) {
-                                                    val owData = try { apiService.getOpenWeatherAqi(location.latitude, location.longitude, owKey) } catch (e: Exception) { null }
-                                                    if (owData != null && owData.list.isNotEmpty()) {
-                                                        val pm25 = owData.list[0].components.pm2_5
-                                                        val aqi = calculateUsAqi(pm25)
-                                                        source = "openweather"
-                                                        val json = """{"status":"ok","data":{"aqi":$aqi,"idx":9999,"city":{"name":"OpenWeather Backup","geo":[${location.latitude},${location.longitude}]},"iaqi":{"pm25":{"v":$pm25}}}}"""
-                                                        waqi = gson.fromJson(json, AqiResponse::class.java)
-                                                    }
+                                    if (loc != null) {
+                                        val lat = loc.latitude
+                                        val lon = loc.longitude
+
+                                        // 1. TIER 1: WAQI
+                                        val lastRecords = db.aqiDao().getLastTwoRecords()
+                                        val isStagnant = lastRecords.size >= 2 && abs(lastRecords[0].aqi - lastRecords[1].aqi) < 5
+                                        if (!isStagnant) {
+                                            val res = try { apiService.getHyperlocalAqi(lat, lon, BuildConfig.API_KEY) } catch (e: Exception) { null }
+                                            if (res != null && res.status == "ok") { finalRes = res; finalSource = "waqi" }
+                                        }
+
+                                        // 2. TIER 2: OPENWEATHER (EPA Standard Model)
+                                        if (finalRes == null && owKey.isNotEmpty()) {
+                                            try {
+                                                val owPollution = apiService.getOpenWeatherAqi(lat, lon, owKey)
+                                                val owWeather = apiService.getOpenWeatherForecast(lat, lon, "metric", owKey)
+                                                
+                                                if (owPollution.list.isNotEmpty() && owWeather.list.isNotEmpty()) {
+                                                    val pm25 = owPollution.list[0].components.pm2_5
+                                                    val aqi = calculateUsAqi(pm25)
+                                                    val w = owWeather.list[0]
+                                                    
+                                                    val json = """
+                                                        {
+                                                          "status": "ok",
+                                                          "data": {
+                                                            "aqi": $aqi,
+                                                            "idx": 9999,
+                                                            "city": { "name": "${query ?: "Local Area"} (Backup)", "geo": [$lat, $lon] },
+                                                            "iaqi": { "pm25": { "v": $pm25 }, "t": { "v": ${w.main.temp} }, "h": { "v": ${w.main.humidity} }, "w": { "v": ${w.wind.speed} } },
+                                                            "forecast": { "daily": { "pm25": [ { "avg": $aqi, "day": "${SimpleDateFormat("yyyy-MM-dd").format(Date())}", "max": $aqi, "min": $aqi } ] } }
+                                                          }
+                                                        }
+                                                    """.trimIndent()
+                                                    finalRes = gson.fromJson(json, AqiResponse::class.java); finalSource = "openweather"
                                                 }
-                                            }
-                                            Pair(waqi, source)
-                                        } else { null }
+                                            } catch (e: Exception) {}
+                                        }
                                     }
+                                    if (finalRes != null) Pair(finalRes, finalSource) else null
                                 } catch (e: Exception) { null }
                             }
 
-                            if (response is Pair<*, *> && (response.first as? AqiResponse)?.status == "ok") {
-                                val aqiRes = response.first as AqiResponse
-                                val source = response.second as String
-                                val data = gson.fromJson(aqiRes.data, AqiData::class.java)
-                                aqiData = data
-                                isOffline = false
+                            if (resultPair != null) {
+                                val data = gson.fromJson(resultPair.first.data, AqiData::class.java)
+                                aqiData = data; isOffline = false; errorMessage = null
                                 sharedPrefs.edit().putString("cached_nearby_aqi", gson.toJson(data)).putLong("last_fetch_time", System.currentTimeMillis()).apply()
                                 
-                                val now = Calendar.getInstance()
-                                val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(now.time)
-                                val hour = now.get(Calendar.HOUR_OF_DAY)
+                                // SHOW DISCLAIMER IF OPENWEATHER IS USED
+                                if (resultPair.second == "openweather" && !hasShownDisclaimerThisSession) {
+                                    showBackupDisclaimer = true
+                                    hasShownDisclaimerThisSession = true
+                                }
+
                                 withContext(Dispatchers.IO) {
-                                    db.aqiDao().insertHourlyRecord(HourlyAqiEntity(date = dateStr, hour = hour, cityName = data.city.name, aqi = data.aqi, dataSource = source))
-                                    if (auth.currentUser?.uid != null) {
-                                        val record = hashMapOf("aqi" to data.aqi, "cityName" to data.city.name, "dataSource" to source, "timestamp" to com.google.firebase.Timestamp.now())
-                                        firestore.collection("users").document(auth.currentUser!!.uid).collection("history").document(dateStr).collection("hourly").document(hour.toString()).set(record)
-                                    }
+                                    val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                                    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+                                    db.aqiDao().insertHourlyRecord(HourlyAqiEntity(date = dateStr, hour = hour, cityName = data.city.name, aqi = data.aqi, dataSource = resultPair.second))
                                 }
                             } else {
-                                // TIER 3: Prediction
-                                withContext(Dispatchers.IO) {
-                                    val lastRecords = db.aqiDao().getLastTwoRecords()
-                                    if (lastRecords.size >= 2) {
-                                        val prediction = (lastRecords[0].aqi + (lastRecords[0].aqi - lastRecords[1].aqi).coerceIn(-25, 25)).coerceIn(0, 500)
-                                        val now = Calendar.getInstance()
-                                        val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(now.time)
-                                        val hour = now.get(Calendar.HOUR_OF_DAY)
-                                        db.aqiDao().insertHourlyRecord(HourlyAqiEntity(date = dateStr, hour = hour, cityName = lastRecords[0].cityName, aqi = prediction, dataSource = "trend_prediction"))
-                                        if (aqiData != null) {
-                                            aqiData = aqiData!!.copy(aqi = prediction)
-                                        }
-                                    }
-                                }
                                 isOffline = true
                             }
                         } catch (e: Exception) { isOffline = true } finally { isLoading = false }
                     }
                 }
 
-                val permissionsLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.RequestMultiplePermissions(), onResult = { fetchData(false, null); setupBackgroundRecording() })
+                val permissionsLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.RequestMultiplePermissions(), onResult = { perms -> if (perms.values.any { it }) { fetchData(false, null); setupBackgroundRecording() } })
                 LaunchedEffect(Unit) { permissionsLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }
+
+                if (showSearchDialog) {
+                    LocationSearchDialog(onDismiss = { showSearchDialog = false }, onSearch = { query -> customQuery = query; fetchData(true, query); showSearchDialog = false }, onReset = { customQuery = null; fetchData(true, null); showSearchDialog = false })
+                }
+
+                // DISCLAIMER POP-UP
+                if (showBackupDisclaimer) {
+                    AlertDialog(
+                        onDismissRequest = { showBackupDisclaimer = false },
+                        icon = { Icon(Icons.Default.Info, contentDescription = null, tint = Color.Cyan) },
+                        title = { Text("Provider Switch", fontWeight = FontWeight.Black) },
+                        text = { Text("Showing Regional Average (Grid-based). Local conditions near heavy traffic may be 20-30% higher.", fontSize = 14.sp) },
+                        confirmButton = { Button(onClick = { showBackupDisclaimer = false }) { Text("Understand") } }
+                    )
+                }
 
                 Surface(modifier = Modifier.fillMaxSize()) {
                     MainScreen(isLoading = isLoading, isOffline = isOffline, errorMessage = errorMessage, aqiData = aqiData, onRefresh = { fetchData(true, customQuery) }, onStationLongPress = { showSearchDialog = true })
@@ -223,13 +232,18 @@ class MainActivity : ComponentActivity() {
 
 fun calculateUsAqi(pm25: Float): Int {
     return when {
-        pm25 <= 12.0 -> ((50 - 0) / (12.0 - 0) * (pm25 - 0) + 0).toInt()
-        pm25 <= 35.4 -> ((100 - 51) / (35.4 - 12.1) * (pm25 - 12.1) + 51).toInt()
-        pm25 <= 55.4 -> ((150 - 101) / (55.4 - 35.5) * (pm25 - 35.5) + 101).toInt()
-        pm25 <= 150.4 -> ((200 - 151) / (150.4 - 55.5) * (pm25 - 55.5) + 151).toInt()
-        pm25 <= 250.4 -> ((300 - 201) / (250.4 - 150.5) * (pm25 - 150.5) + 201).toInt()
-        else -> ((500 - 301) / (500.4 - 250.5) * (pm25 - 250.5) + 301).toInt()
+        pm25 <= 12.0f -> linearInterpolate(pm25, 0f, 12.0f, 0, 50)
+        pm25 <= 35.4f -> linearInterpolate(pm25, 12.1f, 35.4f, 51, 100)
+        pm25 <= 55.4f -> linearInterpolate(pm25, 35.5f, 55.4f, 101, 150)
+        pm25 <= 150.4f -> linearInterpolate(pm25, 55.5f, 150.4f, 151, 200)
+        pm25 <= 250.4f -> linearInterpolate(pm25, 150.5f, 250.4f, 201, 300)
+        pm25 <= 350.4f -> linearInterpolate(pm25, 250.5f, 350.4f, 301, 400)
+        else -> linearInterpolate(pm25, 350.5f, 500.4f, 401, 500)
     }.coerceIn(0, 500)
+}
+
+private fun linearInterpolate(aqi: Float, concLo: Float, concHi: Float, aqiLo: Int, aqiHi: Int): Int {
+    return (((aqiHi - aqiLo) / (concHi - concLo)) * (aqi - concLo) + aqiLo).toInt()
 }
 
 @Composable
@@ -253,7 +267,7 @@ fun MainScreen(isLoading: Boolean, isOffline: Boolean, errorMessage: String?, aq
                         Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Warning, contentDescription = null, tint = Color.Yellow, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Outage Backup Active", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Regional Backup Active", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

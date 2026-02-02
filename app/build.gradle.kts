@@ -34,6 +34,10 @@ android {
         // ADDED: Read OpenWeather key from local.properties
         val owKey = localProperties.getProperty("openWeatherKey", "").trim('\"')
         buildConfigField("String", "OPEN_WEATHER_KEY", "\"$owKey\"")
+
+        // ADDED: Read OpenAQ key from local.properties
+        val oaqKey = localProperties.getProperty("openAqiKey", "").trim('\"')
+        buildConfigField("String", "OPEN_AQ_KEY", "\"$oaqKey\"")
     }
 
     buildTypes {

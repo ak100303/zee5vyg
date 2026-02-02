@@ -34,33 +34,34 @@ fun AqiGauge(aqi: Int) {
         label = "AQIValue"
     )
 
+    // Scientific AQI Color Scale
     val aqiColor = when {
-        animatedAqi <= 50 -> Color(0xFF4CAF50)
-        animatedAqi <= 100 -> Color(0xFFFFEB3B)
-        animatedAqi <= 150 -> Color(0xFFFF9800)
-        else -> Color(0xFFF44336)
+        animatedAqi <= 50 -> Color(0xFF00E676)  // Good
+        animatedAqi <= 100 -> Color(0xFFFFEA00) // Moderate
+        animatedAqi <= 150 -> Color(0xFFFF9100) // Sensitive
+        animatedAqi <= 200 -> Color(0xFFFF5252) // Unhealthy
+        animatedAqi <= 300 -> Color(0xFFD500F9) // Very Unhealthy
+        else -> Color(0xFFB71C1C)               // Hazardous
     }
-
-    val gaugeBackgroundColor = Color.White.copy(alpha = 0.3f)
 
     Box(contentAlignment = Alignment.Center, modifier = Modifier.size(280.dp)) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val center = Offset(size.width / 2, size.height / 2)
-            val radius = (size.minDimension / 2) - 20f
             val strokeWidth = 35f
-
+            
+            // Background Track
             drawArc(
-                color = gaugeBackgroundColor,
+                color = Color.White.copy(alpha = 0.15f),
                 startAngle = 135f,
                 sweepAngle = 270f,
                 useCenter = false,
                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
             )
 
+            // Progress Arc (Fixed to support max 500)
             drawArc(
                 color = aqiColor,
                 startAngle = 135f,
-                sweepAngle = (animatedAqi / 200f * 270f).coerceIn(0f, 270f),
+                sweepAngle = (animatedAqi / 500f * 270f).coerceIn(0f, 270f),
                 useCenter = false,
                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
             )
@@ -70,13 +71,14 @@ fun AqiGauge(aqi: Int) {
             Text(
                 text = animatedAqi.toInt().toString(),
                 style = MaterialTheme.typography.displayLarge,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.Black,
                 color = aqiColor
             )
             Text(
                 text = "AQI",
                 style = MaterialTheme.typography.titleMedium,
-                color = Color.White.copy(alpha = 0.7f)
+                fontWeight = FontWeight.Bold,
+                color = Color.White.copy(alpha = 0.5f)
             )
         }
     }
