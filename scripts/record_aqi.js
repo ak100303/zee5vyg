@@ -26,7 +26,7 @@ function calculateUsAqi(pm25) {
 
 async function record() {
   try {
-    // 2. BEACON LOGIC: Follow the user's phone location
+    // 2. BEACON LOGIC
     const userDoc = await db.collection('users').doc(uid).get();
     const lastLoc = userDoc.exists ? userDoc.data().lastLocation : { lat: 13.0827, lon: 80.2707 };
     const { lat, lon } = lastLoc;
@@ -37,11 +37,11 @@ async function record() {
     const dateStr = nowIST.toISOString().split('T')[0];
     const hour = nowIST.getUTCHours();
 
-    // 3. GET LAST RECORD (For Stagnancy Check)
-    const lastHour = hour > 0 ? (hour - 1).toString() : "23";
-    const lastDate = hour > 0 ? dateStr : new Date(nowIST.getTime() - 86400000).toISOString().split('T')[0];
-    const lastDoc = await db.collection('users').doc(uid).collection('history').doc(lastDate).collection('hourly').doc(lastHour).get();
-    const lastAqi = lastDoc.exists ? lastDoc.data().aqi : null;
+    // 3. FETCH RECENT HISTORY (For Prediction/Stagnancy)
+    // We fetch the current day's records to check the trend
+    const historySnap = await db.collection('users').doc(uid).collection('history').doc(dateStr).collection('hourly').get();
+    const records = historySnap.docs.map(d => ({ hour: parseInt(d.id), aqi: d.data().aqi })).sort((a, b) => b.hour - a.hour);
+    const lastAqi = records.length > 0 ? records[0].aqi : null;
 
     let aqiValue = null;
     let cityLabel = "Unknown Area";
@@ -52,18 +52,17 @@ async function record() {
       const res = await axios.get(`https://api.waqi.info/feed/geo:${lat};${lon}/?token=${waqiToken}`, { timeout: 10000 });
       if (res.data.status === "ok") {
         const waqiAqi = res.data.data.aqi;
-        // STAGNANCY CHECK: If same as last hour, force switch to backup
         if (waqiAqi !== lastAqi) {
           aqiValue = waqiAqi;
           cityLabel = res.data.data.city.name;
           source = "waqi";
         } else {
-          console.log("WAQI Stagnant (Same as last hour). Moving to backup...");
+          console.log("WAQI Stagnant. Moving to OWM Failover.");
         }
       }
-    } catch (e) { console.log("WAQI Fail, moving to backup..."); }
+    } catch (e) { console.log("WAQI Fail."); }
 
-    // 5. TIER 2: OPENWEATHER FAILOVER
+    // 5. TIER 2: OPENWEATHER
     if (!aqiValue && owKey) {
       try {
         const res = await axios.get(`https://api.openweathermap.org/data/2.5/air_pollution?lat=${lat}&lon=${lon}&appid=${owKey}`, { timeout: 10000 });
@@ -73,7 +72,18 @@ async function record() {
           cityLabel = userDoc.exists && userDoc.data().cityName ? userDoc.data().cityName : "Local Area";
           source = "openweather";
         }
-      } catch (e) { console.log("OWM Fail"); }
+      } catch (e) { console.log("OWM Fail."); }
+    }
+
+    // 6. TIER 3: AUTONOMOUS PREDICTION (If both failed)
+    if (!aqiValue && records.length >= 2) {
+      console.log("Both APIs failed. Initiating Trend Prediction...");
+      const latest = records[0].aqi;
+      const previous = records[1].aqi;
+      const trend = latest - previous;
+      aqiValue = Math.max(0, Math.min(500, latest + Math.max(-25, Math.min(25, trend))));
+      cityLabel = records[0].cityName || "Trend Estimate";
+      source = "trend_prediction";
     }
 
     if (aqiValue) {
@@ -85,7 +95,7 @@ async function record() {
       };
 
       await db.collection('users').doc(uid).collection('history').doc(dateStr).collection('hourly').doc(hour.toString()).set(record);
-      console.log(`Successfully recorded ${aqiValue} from ${source} at ${hour}:00 IST`);
+      console.log(`Recorded ${aqiValue} (${source}) for ${hour}:00 IST`);
     }
 
   } catch (error) {
