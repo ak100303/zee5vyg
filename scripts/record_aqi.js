@@ -2,10 +2,12 @@ const admin = require('firebase-admin');
 const axios = require('axios');
 
 // 1. INITIALIZE FIREBASE
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
-});
+if (!admin.apps.length) {
+  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+  });
+}
 
 const db = admin.firestore();
 const uid = process.env.USER_UID;
@@ -29,39 +31,52 @@ async function record() {
     const lastLoc = userDoc.exists ? userDoc.data().lastLocation : { lat: 13.0827, lon: 80.2707 };
     const { lat, lon } = lastLoc;
 
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const nowIST = new Date(now.getTime() + istOffset);
+    const dateStr = nowIST.toISOString().split('T')[0];
+    const hour = nowIST.getUTCHours();
+
+    // 3. GET LAST RECORD (For Stagnancy Check)
+    const lastHour = hour > 0 ? (hour - 1).toString() : "23";
+    const lastDate = hour > 0 ? dateStr : new Date(nowIST.getTime() - 86400000).toISOString().split('T')[0];
+    const lastDoc = await db.collection('users').doc(uid).collection('history').doc(lastDate).collection('hourly').doc(lastHour).get();
+    const lastAqi = lastDoc.exists ? lastDoc.data().aqi : null;
+
     let aqiValue = null;
     let cityLabel = "Unknown Area";
     let source = "waqi";
 
-    // 3. TIER 1: WAQI
+    // 4. TIER 1: WAQI
     try {
       const res = await axios.get(`https://api.waqi.info/feed/geo:${lat};${lon}/?token=${waqiToken}`, { timeout: 10000 });
       if (res.data.status === "ok") {
-        aqiValue = res.data.data.aqi;
-        cityLabel = res.data.data.city.name;
+        const waqiAqi = res.data.data.aqi;
+        // STAGNANCY CHECK: If same as last hour, force switch to backup
+        if (waqiAqi !== lastAqi) {
+          aqiValue = waqiAqi;
+          cityLabel = res.data.data.city.name;
+          source = "waqi";
+        } else {
+          console.log("WAQI Stagnant (Same as last hour). Moving to backup...");
+        }
       }
     } catch (e) { console.log("WAQI Fail, moving to backup..."); }
 
-    // 4. TIER 2: OPENWEATHER FAILOVER
+    // 5. TIER 2: OPENWEATHER FAILOVER
     if (!aqiValue && owKey) {
       try {
         const res = await axios.get(`https://api.openweathermap.org/data/2.5/air_pollution?lat=${lat}&lon=${lon}&appid=${owKey}`, { timeout: 10000 });
         if (res.data.list.length > 0) {
           const pm25 = res.data.list[0].components.pm2_5;
           aqiValue = calculateUsAqi(pm25);
-          cityLabel = "Cloud Backup (OWM)";
+          cityLabel = userDoc.exists && userDoc.data().cityName ? userDoc.data().cityName : "Local Area";
           source = "openweather";
         }
       } catch (e) { console.log("OWM Fail"); }
     }
 
     if (aqiValue) {
-      const now = new Date();
-      // Adjust to IST (+5.5) for the filename
-      const istTime = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
-      const dateStr = istTime.toISOString().split('T')[0];
-      const hour = istTime.getUTCHours();
-
       const record = {
         aqi: aqiValue,
         cityName: cityLabel,
@@ -69,13 +84,8 @@ async function record() {
         timestamp: admin.firestore.Timestamp.now()
       };
 
-      // 5. SAVE TO FIREBASE
-      await db.collection('users').doc(uid)
-        .collection('history').doc(dateStr)
-        .collection('hourly').doc(hour.toString())
-        .set(record);
-
-      console.log(`Successfully recorded ${aqiValue} from ${source} at ${hour}:00`);
+      await db.collection('users').doc(uid).collection('history').doc(dateStr).collection('hourly').doc(hour.toString()).set(record);
+      console.log(`Successfully recorded ${aqiValue} from ${source} at ${hour}:00 IST`);
     }
 
   } catch (error) {
