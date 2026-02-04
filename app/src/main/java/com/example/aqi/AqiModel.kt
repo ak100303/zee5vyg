@@ -25,27 +25,26 @@ data class OpenWeatherResponse(val list: List<OwAirQualityData>)
 data class OwAirQualityData(val main: OwMain, val components: OwComponents, val dt: Long)
 data class OwMain(val aqi: Int)
 data class OwComponents(val pm2_5: Float, val pm10: Float)
-
-// --- OPENWEATHER FORECAST MODELS (New) ---
 data class OwForecastResponse(val list: List<OwForecastItem>)
-data class OwForecastItem(
-    val main: OwForecastMain,
-    val wind: OwForecastWind,
-    val dt_txt: String
-)
-data class OwForecastMain(
-    val temp: Float,
-    val humidity: Float,
-    val pressure: Float
-)
+data class OwForecastItem(val main: OwForecastMain, val wind: OwForecastWind, val dt_txt: String)
+data class OwForecastMain(val temp: Float, val humidity: Float, val pressure: Float)
 data class OwForecastWind(val speed: Float)
 
 // --- OPENAQ MODELS ---
 data class OpenAqiResponse(val results: List<OpenAqiResult>)
-data class OpenAqiResult(
-    val location: String,
-    val measurements: List<OpenAqiMeasurement>,
-    val coordinates: OpenAqiCoords
-)
+data class OpenAqiResult(val location: String, val measurements: List<OpenAqiMeasurement>, val coordinates: OpenAqiCoords)
 data class OpenAqiMeasurement(val parameter: String, val value: Float, val unit: String)
 data class OpenAqiCoords(val latitude: Double, val longitude: Double)
+
+// --- DATA.GOV.IN MODELS (Indian Official) ---
+data class GovIndiaResponse(
+    val records: List<GovIndiaRecord>,
+    @SerializedName("total") val total: Int
+)
+data class GovIndiaRecord(
+    val city: String,
+    val station: String,
+    @SerializedName("pollutant_id") val pollutantId: String,
+    @SerializedName("pollutant_avg") val pollutantValue: String,
+    @SerializedName("last_update") val lastUpdate: String
+)

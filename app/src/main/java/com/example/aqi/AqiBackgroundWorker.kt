@@ -29,13 +29,15 @@ class AqiBackgroundWorker(
     workerParams: WorkerParameters
 ) : CoroutineWorker(context, workerParams) {
 
-    private val NOTIFICATION_ID = 101
-    private val CHANNEL_ID = "aqi_recorder_channel"
+    private val FOREGROUND_ID = 101
+    private val ALERT_ID = 102
+    private val SERVICE_CHANNEL = "aqi_recorder_channel"
+    private val ALERT_CHANNEL = "aqi_alert_channel"
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
         return ForegroundInfo(
-            NOTIFICATION_ID,
-            createNotification(),
+            FOREGROUND_ID,
+            createServiceNotification(),
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or
                         android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
@@ -43,17 +45,35 @@ class AqiBackgroundWorker(
         )
     }
 
-    private fun createNotification(): Notification {
+    private fun createServiceNotification(): Notification {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(CHANNEL_ID, "AQI Background Recorder", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel(SERVICE_CHANNEL, "AQI Recorder", NotificationManager.IMPORTANCE_LOW)
             val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(channel)
         }
-        return NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setContentTitle("Recording Air Quality")
-            .setContentText("Syncing hyperlocal data...")
+        return NotificationCompat.Builder(applicationContext, SERVICE_CHANNEL)
+            .setContentTitle("Air Quality Monitor")
+            .setContentText("Keeping your history up to date...")
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setOngoing(true).build()
+    }
+
+    private fun sendAqiAlert(aqi: Int, city: String) {
+        val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(ALERT_CHANNEL, "AQI Health Alerts", NotificationManager.IMPORTANCE_HIGH)
+            manager.createNotificationChannel(channel)
+        }
+
+        val notification = NotificationCompat.Builder(applicationContext, ALERT_CHANNEL)
+            .setContentTitle("AQI Alert: $aqi in $city")
+            .setContentText("Sensitive: Avoid outdoors. Normal: Limit intense exercise.")
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build()
+
+        manager.notify(ALERT_ID, notification)
     }
 
     @SuppressLint("MissingPermission")
@@ -80,7 +100,6 @@ class AqiBackgroundWorker(
             var dataSource: String = "unknown"
 
             if (location != null) {
-                // TIER 1: WAQI
                 try {
                     val response = apiService.getHyperlocalAqi(location.latitude, location.longitude, BuildConfig.API_KEY)
                     if (response.status == "ok" && response.data.isJsonObject) {
@@ -89,9 +108,8 @@ class AqiBackgroundWorker(
                         recordedCity = data.city.name
                         dataSource = "waqi"
                     }
-                } catch (e: Exception) { Log.e("AQI_WORKER", "WAQI Failed: ${e.message}") }
+                } catch (e: Exception) { Log.e("AQI_WORKER", "WAQI Failed") }
 
-                // TIER 2: OPENWEATHER FAILOVER
                 if (recordedAqi == null) {
                     val owKey = BuildConfig.OPEN_WEATHER_KEY
                     if (owKey.isNotEmpty()) {
@@ -99,38 +117,27 @@ class AqiBackgroundWorker(
                             val owData = apiService.getOpenWeatherAqi(location.latitude, location.longitude, owKey)
                             if (owData.list.isNotEmpty()) {
                                 recordedAqi = calculateUsAqi(owData.list[0].components.pm2_5)
-                                recordedCity = "Failover: OpenWeather"
+                                recordedCity = "Local (Backup)"
                                 dataSource = "openweather"
                             }
-                        } catch (e: Exception) { Log.e("AQI_WORKER", "OpenWeather Failed: ${e.message}") }
+                        } catch (e: Exception) { Log.e("AQI_WORKER", "OWM Failed") }
                     }
                 }
             }
 
-            // TIER 3: PREDICTION
-            if (recordedAqi == null) {
-                val lastRecords = db.aqiDao().getLastTwoRecords()
-                if (lastRecords.size >= 2) {
-                    val trend = lastRecords[0].aqi - lastRecords[1].aqi
-                    recordedAqi = (lastRecords[0].aqi + trend.coerceIn(-25, 25)).coerceIn(0, 500)
-                    recordedCity = lastRecords[0].cityName
-                    dataSource = "trend_prediction"
-                }
-            }
-
             if (recordedAqi != null && recordedCity != null) {
+                // TEST ALERT LOGIC: If above 80, send notification
+                if (recordedAqi > 80) {
+                    sendAqiAlert(recordedAqi, recordedCity)
+                }
+
                 // Save Local
-                db.aqiDao().insertHourlyRecord(HourlyAqiEntity(date = dateStr, hour = hour, cityName = recordedCity, aqi = recordedAqi))
+                db.aqiDao().insertHourlyRecord(HourlyAqiEntity(date = dateStr, hour = hour, cityName = recordedCity, aqi = recordedAqi, dataSource = dataSource))
                 db.aqiDao().insertAqiRecord(AqiEntity(dateStr, recordedCity, recordedAqi))
 
-                // Save Cloud with Label
+                // Save Cloud
                 if (userId != null) {
-                    val record = hashMapOf(
-                        "aqi" to recordedAqi,
-                        "cityName" to recordedCity,
-                        "dataSource" to dataSource,
-                        "timestamp" to com.google.firebase.Timestamp.now()
-                    )
+                    val record = hashMapOf("aqi" to recordedAqi, "cityName" to recordedCity, "dataSource" to dataSource, "timestamp" to com.google.firebase.Timestamp.now())
                     firestore.collection("users").document(userId).collection("history").document(dateStr).collection("hourly").document(hour.toString()).set(record)
                 }
             }

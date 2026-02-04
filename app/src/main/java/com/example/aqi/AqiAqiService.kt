@@ -36,7 +36,7 @@ interface AqiApiService {
         @Query("appid") apiKey: String
     ): OpenWeatherResponse
 
-    // OPENWEATHER 5-DAY / 3-HOUR FORECAST (For Trend & Weather)
+    // OPENWEATHER WEATHER & FORECAST
     @GET("https://api.openweathermap.org/data/2.5/forecast")
     suspend fun getOpenWeatherForecast(
         @Query("lat") lat: Double,
@@ -52,6 +52,16 @@ interface AqiApiService {
         @Query("radius") radius: Int = 10000,
         @Header("X-API-Key") apiKey: String
     ): OpenAqiResponse
+
+    // DATA.GOV.IN (Official Indian Government Source)
+    @GET("https://api.data.gov.in/resource/3b01397b-ed61-4934-8316-de174d7c0947")
+    suspend fun getGovIndiaAqi(
+        @Query("api-key") apiKey: String,
+        @Query("format") format: String = "json",
+        @Query("filters[city]") city: String? = null,
+        @Query("filters[station]") station: String? = null,
+        @Query("limit") limit: Int = 10
+    ): GovIndiaResponse
 
     companion object {
         private const val BASE_URL = "https://api.waqi.info/"

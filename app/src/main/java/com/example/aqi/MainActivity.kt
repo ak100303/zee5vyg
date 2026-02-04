@@ -123,6 +123,7 @@ class MainActivity : ComponentActivity() {
                                     var finalRes: AqiResponse? = null
                                     var finalSource = "waqi"
 
+                                    // 1. Resolve Coords (GPS or SEARCH)
                                     val targetCoords = if (query != null) {
                                         val geocoder = Geocoder(context, Locale.getDefault())
                                         val addr = try { geocoder.getFromLocationName(query, 1) } catch (e: Exception) { null }
@@ -135,27 +136,27 @@ class MainActivity : ComponentActivity() {
 
                                     if (targetCoords != null) {
                                         val (lat, lon) = targetCoords
-                                        if (query == null && auth.currentUser?.uid != null) {
-                                            firestore.collection("users").document(auth.currentUser!!.uid).set(hashMapOf("lastLocation" to hashMapOf("lat" to lat, "lon" to lon)), SetOptions.merge())
-                                        }
-
+                                        
+                                        // 2. ATTEMPT WAQI (Primary)
+                                        var res = try { apiService.getHyperlocalAqi(lat, lon, BuildConfig.API_KEY) } catch (e: Exception) { null }
+                                        
+                                        // Stagnancy check only for local GPS
                                         val lastRecords = db.aqiDao().getLastTwoRecords()
-                                        val isStagnant = lastRecords.size >= 2 && abs(lastRecords[0].aqi - lastRecords[1].aqi) < 5
-                                        if (!isStagnant) {
-                                            val res = try { apiService.getHyperlocalAqi(lat, lon, BuildConfig.API_KEY) } catch (e: Exception) { null }
-                                            if (res != null && res.status == "ok") { finalRes = res; finalSource = "waqi" }
-                                        }
+                                        val isStagnant = query == null && lastRecords.size >= 2 && 
+                                            res != null && res.status == "ok" && gson.fromJson(res.data, AqiData::class.java).aqi == lastRecords[0].aqi
 
-                                        if (finalRes == null && owKey.isNotEmpty()) {
+                                        if (res != null && res.status == "ok" && !isStagnant) {
+                                            finalRes = res
+                                            finalSource = "waqi"
+                                        } else if (owKey.isNotEmpty()) {
+                                            // 3. FAILOVER TO OPENWEATHER
                                             val owPollution = try { apiService.getOpenWeatherAqi(lat, lon, owKey) } catch (e: Exception) { null }
-                                            val owWeather = try { apiService.getOpenWeatherForecast(lat, lon, "metric", owKey) } catch (e: Exception) { null }
-                                            if (owPollution != null && owPollution.list.isNotEmpty() && owWeather != null) {
-                                                val pm25 = owPollution.list[0].components.pm2_5
-                                                val aqiVal = calculateUsAqi(pm25)
-                                                val w = owWeather.list[0]
-                                                val name = if (query != null) query else (lastRecords.firstOrNull()?.cityName ?: "Local Area")
-                                                val json = """{"status":"ok","data":{"aqi":$aqiVal,"idx":9999,"city":{"name":"$name (Backup)"},"iaqi":{"pm25":{"v":$pm25},"t":{"v":${w.main.temp}},"h":{"v":${w.main.humidity}},"w":{"v":${w.wind.speed}}},"forecast":{"daily":{"pm25":[{"avg":$aqiVal,"day":"${SimpleDateFormat("yyyy-MM-dd").format(Date())}","max":$aqiVal,"min":$aqiVal}]}}}}"""
-                                                finalRes = gson.fromJson(json, AqiResponse::class.java); finalSource = "openweather"
+                                            if (owPollution != null && owPollution.list.isNotEmpty()) {
+                                                val aqiVal = calculateUsAqi(owPollution.list[0].components.pm2_5)
+                                                val displayName = query ?: (lastRecords.firstOrNull()?.cityName ?: "Local Area")
+                                                val json = """{"status":"ok","data":{"aqi":$aqiVal,"idx":9999,"city":{"name":"$displayName"},"iaqi":{"pm25":{"v":${owPollution.list[0].components.pm2_5}}}}}"""
+                                                finalRes = gson.fromJson(json, AqiResponse::class.java)
+                                                finalSource = "openweather"
                                             }
                                         }
                                     }
@@ -218,6 +219,11 @@ private fun linearInterpolate(aqi: Float, concLo: Float, concHi: Float, aqiLo: I
 fun MainScreen(isLoading: Boolean, isOffline: Boolean, errorMessage: String?, aqiData: AqiData?, onRefresh: () -> Unit, onStationLongPress: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize()) {
         if (isLoading && aqiData == null) { CircularProgressIndicator(modifier = Modifier.align(Alignment.Center)) }
+        else if (errorMessage != null && aqiData == null) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(text = errorMessage, color = Color.Red, modifier = Modifier.padding(16.dp))
+            }
+        }
         else if (aqiData != null) {
             val pagerState = rememberPagerState { 4 }
             Box(modifier = Modifier.fillMaxSize()) {
