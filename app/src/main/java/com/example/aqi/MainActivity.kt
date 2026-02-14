@@ -2,12 +2,16 @@ package com.example.aqi
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.location.Geocoder
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -39,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import androidx.work.*
@@ -63,12 +68,16 @@ import kotlin.math.abs
 
 class MainActivity : ComponentActivity() {
     private val MIN_REFRESH_INTERVAL = 5 * 60 * 1000 
+    private val PERSONAL_ALERT_ID = 999
 
     @SuppressLint("MissingPermission")
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         
+        // START THE BACKGROUND MONITOR SERVICE
+        startPersonalAqiService()
+
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 if (FirebaseAuth.getInstance().currentUser == null) {
@@ -123,7 +132,6 @@ class MainActivity : ComponentActivity() {
                                     var finalRes: AqiResponse? = null
                                     var finalSource = "waqi"
 
-                                    // 1. Resolve Coords (GPS or SEARCH)
                                     val targetCoords = if (query != null) {
                                         val geocoder = Geocoder(context, Locale.getDefault())
                                         val addr = try { geocoder.getFromLocationName(query, 1) } catch (e: Exception) { null }
@@ -136,27 +144,22 @@ class MainActivity : ComponentActivity() {
 
                                     if (targetCoords != null) {
                                         val (lat, lon) = targetCoords
-                                        
-                                        // 2. ATTEMPT WAQI (Primary)
-                                        var res = try { apiService.getHyperlocalAqi(lat, lon, BuildConfig.API_KEY) } catch (e: Exception) { null }
-                                        
-                                        // Stagnancy check only for local GPS
+                                        if (query == null && auth.currentUser?.uid != null) {
+                                            firestore.collection("users").document(auth.currentUser!!.uid).set(hashMapOf("lastLocation" to hashMapOf("lat" to lat, "lon" to lon)), SetOptions.merge())
+                                        }
+
+                                        val res = try { apiService.getHyperlocalAqi(lat, lon, BuildConfig.API_KEY) } catch (e: Exception) { null }
                                         val lastRecords = db.aqiDao().getLastTwoRecords()
-                                        val isStagnant = query == null && lastRecords.size >= 2 && 
-                                            res != null && res.status == "ok" && gson.fromJson(res.data, AqiData::class.java).aqi == lastRecords[0].aqi
+                                        val isStagnant = query == null && lastRecords.size >= 2 && res != null && res.status == "ok" && gson.fromJson(res.data, AqiData::class.java).aqi == lastRecords[0].aqi
 
                                         if (res != null && res.status == "ok" && !isStagnant) {
-                                            finalRes = res
-                                            finalSource = "waqi"
+                                            finalRes = res; finalSource = "waqi"
                                         } else if (owKey.isNotEmpty()) {
-                                            // 3. FAILOVER TO OPENWEATHER
                                             val owPollution = try { apiService.getOpenWeatherAqi(lat, lon, owKey) } catch (e: Exception) { null }
                                             if (owPollution != null && owPollution.list.isNotEmpty()) {
                                                 val aqiVal = calculateUsAqi(owPollution.list[0].components.pm2_5)
-                                                val displayName = query ?: (lastRecords.firstOrNull()?.cityName ?: "Local Area")
-                                                val json = """{"status":"ok","data":{"aqi":$aqiVal,"idx":9999,"city":{"name":"$displayName"},"iaqi":{"pm25":{"v":${owPollution.list[0].components.pm2_5}}}}}"""
-                                                finalRes = gson.fromJson(json, AqiResponse::class.java)
-                                                finalSource = "openweather"
+                                                val json = """{"status":"ok","data":{"aqi":$aqiVal,"idx":9999,"city":{"name":"${query ?: "Local Area"}"},"iaqi":{"pm25":{"v":${owPollution.list[0].components.pm2_5}}}}}"""
+                                                finalRes = gson.fromJson(json, AqiResponse::class.java); finalSource = "openweather"
                                             }
                                         }
                                     }
@@ -173,14 +176,22 @@ class MainActivity : ComponentActivity() {
                                     val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
                                     db.aqiDao().insertHourlyRecord(HourlyAqiEntity(date = dateStr, hour = hour, cityName = data.city.name, aqi = data.aqi, dataSource = resultPair.second))
                                 }
-                            } else {
+                            } else if (query == null) {
+                                withContext(Dispatchers.IO) {
+                                    val lastRecords = db.aqiDao().getLastTwoRecords()
+                                    if (lastRecords.size >= 2) {
+                                        val prediction = (lastRecords[0].aqi + (lastRecords[0].aqi - lastRecords[1].aqi).coerceIn(-25, 25)).coerceIn(0, 500)
+                                        db.aqiDao().insertHourlyRecord(HourlyAqiEntity(date = SimpleDateFormat("yyyy-MM-dd").format(Date()), hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY), cityName = lastRecords[0].cityName, aqi = prediction, dataSource = "trend_prediction"))
+                                        if (aqiData != null) aqiData = aqiData!!.copy(aqi = prediction)
+                                    }
+                                }
                                 isOffline = true
                             }
                         } catch (e: Exception) { isOffline = true } finally { isLoading = false }
                     }
                 }
 
-                val permsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { fetchData(false, null) }
+                val permsLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.RequestMultiplePermissions(), onResult = { perms -> if (perms.values.any { it }) { fetchData(false, null); setupBackgroundRecording() } })
                 LaunchedEffect(Unit) { permsLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }
 
                 if (showSearchDialog) {
@@ -197,6 +208,21 @@ class MainActivity : ComponentActivity() {
     private fun setupBackgroundRecording() {
         val workRequest = PeriodicWorkRequestBuilder<AqiBackgroundWorker>(1, TimeUnit.HOURS).build()
         WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork("AqiBackgroundRecorder", ExistingPeriodicWorkPolicy.KEEP, workRequest)
+    }
+
+    private fun startPersonalAqiService() {
+        val intent = Intent(this, PersonalAqiMonitorService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.cancel(PERSONAL_ALERT_ID)
     }
 }
 
@@ -219,21 +245,20 @@ private fun linearInterpolate(aqi: Float, concLo: Float, concHi: Float, aqiLo: I
 fun MainScreen(isLoading: Boolean, isOffline: Boolean, errorMessage: String?, aqiData: AqiData?, onRefresh: () -> Unit, onStationLongPress: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize()) {
         if (isLoading && aqiData == null) { CircularProgressIndicator(modifier = Modifier.align(Alignment.Center)) }
-        else if (errorMessage != null && aqiData == null) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(text = errorMessage, color = Color.Red, modifier = Modifier.padding(16.dp))
-            }
-        }
         else if (aqiData != null) {
-            val pagerState = rememberPagerState { 4 }
+            val pagerState = rememberPagerState { 5 }
+            var personalAqi by remember { mutableIntStateOf(0) }
+            val currentAqi = if (pagerState.currentPage == 4) personalAqi else aqiData.aqi
+
             Box(modifier = Modifier.fillMaxSize()) {
-                AnimatedBackground(aqi = aqiData.aqi)
+                AnimatedBackground(aqi = currentAqi)
                 HorizontalPager(state = pagerState) { page ->
                     when (page) {
                         0 -> CurrentAqiScreen(aqiData, onRefresh, onStationLongPress, isOffline)
                         1 -> ForecastScreen(aqiData = aqiData)
                         2 -> ExerciseScreen(aqi = aqiData.aqi)
                         3 -> CalendarScreen(cityName = aqiData.city.name, forecasts = aqiData.forecast?.daily)
+                        4 -> PersonalSensorScreen(onAqiChanged = { personalAqi = it })
                     }
                 }
                 if (isOffline) {
@@ -246,7 +271,7 @@ fun MainScreen(isLoading: Boolean, isOffline: Boolean, errorMessage: String?, aq
                     }
                 }
                 Row(Modifier.height(50.dp).fillMaxWidth().align(Alignment.BottomCenter), horizontalArrangement = Arrangement.Center) {
-                    repeat(4) { iteration ->
+                    repeat(5) { iteration ->
                         val color = if (pagerState.currentPage == iteration) Color.White else Color.White.copy(alpha = 0.5f)
                         Box(modifier = Modifier.padding(2.dp).clip(CircleShape).background(color).size(10.dp))
                     }
