@@ -19,6 +19,10 @@ class PersonalAqiMonitorService : Service() {
     private val ALERT_ID = 999
     
     private var firestoreListener: ListenerRegistration? = null
+    
+    // COOL-DOWN LOGIC: Only 1 notification every 3 minutes (180,000 ms)
+    private var lastAlertTimestamp: Long = 0
+    private val ALERT_COOLDOWN_MS: Long = 3 * 60 * 1000 
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -33,14 +37,12 @@ class PersonalAqiMonitorService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             
-            // Channel for the background service itself
             val serviceChannel = NotificationChannel(
                 MONITOR_CHANNEL_ID,
                 "Indoor Monitor Service",
                 NotificationManager.IMPORTANCE_LOW
             )
             
-            // Channel for the high-priority alerts
             val alertChannel = NotificationChannel(
                 ALERT_CHANNEL_ID,
                 "Indoor Air Alerts",
@@ -74,19 +76,32 @@ class PersonalAqiMonitorService : Service() {
                 val ppm = snapshot.getDouble("ppm")?.toFloat() ?: 400f
                 val aqi = calculateAqi(ppm)
 
+                val currentTime = System.currentTimeMillis()
+                
+                // TRIGGER ALERT ONLY IF AQI > 150 AND 3 MINUTES HAVE PASSED
                 if (aqi > 150) {
-                    triggerAlert(aqi)
+                    if (currentTime - lastAlertTimestamp > ALERT_COOLDOWN_MS) {
+                        triggerAlert(aqi, isIndoor = true)
+                        lastAlertTimestamp = currentTime
+                    }
                 }
             }
         }
     }
 
-    private fun triggerAlert(aqi: Int) {
+    private fun triggerAlert(aqi: Int, isIndoor: Boolean) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         
+        val title = if (isIndoor) "INDOOR AIR ALERT: $aqi" else "OUTDOOR AIR ALERT: $aqi"
+        val message = if (isIndoor) {
+            "Warning: Poor indoor air quality detected. Please ventilate the room immediately."
+        } else {
+            "Sensitive: Avoid outdoors. Normal: Limit intense exercise."
+        }
+
         val notification = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
-            .setContentTitle("SUDDEN HIGH AQI: $aqi")
-            .setContentText("Sensitive: Avoid outdoors. Normal: Limit activity.")
+            .setContentTitle(title)
+            .setContentText(message)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setDefaults(Notification.DEFAULT_ALL)
@@ -95,10 +110,7 @@ class PersonalAqiMonitorService : Service() {
 
         manager.notify(ALERT_ID, notification)
 
-        // Auto-dismiss after 5 minutes
-        Handler(Looper.getMainLooper()).postDelayed({
-            manager.cancel(ALERT_ID)
-        }, 300000)
+        // Notification stays in tray until user dismisses or next alert fires
     }
 
     private fun calculateAqi(ppm: Float): Int {

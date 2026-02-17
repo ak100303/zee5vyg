@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:allowBackup="true"
@@ -30,6 +31,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Personal AQI Monitor Service -->
+        <service
+            android:name=".PersonalAqiMonitorService"
+            android:foregroundServiceType="dataSync"
+            android:enabled="true"
+            android:exported="false" />
 
         <!-- REQUIRED for WorkManager foreground service on Android 14+ -->
         <service
