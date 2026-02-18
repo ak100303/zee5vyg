@@ -1,5 +1,8 @@
 package com.example.aqi
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -16,6 +19,7 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -26,7 +30,7 @@ data class ExerciseSuggestion(
     val type: String,
     val emoji: String,
     val lottieFile: String? = null,
-    val reason: String = ""
+    val youtubeQuery: String = ""
 )
 
 @Composable
@@ -35,8 +39,7 @@ fun ExerciseScreen(aqi: Int) {
     val indoorExercises = suggestions.filter { it.type == "Indoor" }
     val outdoorExercises = suggestions.filter { it.type == "Outdoor" }
     val commuteAdvice = getCommuteAdvice(aqi)
-
-    var selectedExercise by remember { mutableStateOf<ExerciseSuggestion?>(null) }
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier
@@ -51,32 +54,28 @@ fun ExerciseScreen(aqi: Int) {
         
         Spacer(modifier = Modifier.height(24.dp))
 
-        // PROFESSOR FEEDBACK: ADD WORK/COMMUTE CONTEXT
         AdviceCategory("IF YOU HAVE WORK TO DO...", listOf(commuteAdvice))
         
         Spacer(modifier = Modifier.height(24.dp))
 
         if (outdoorExercises.isNotEmpty()) {
-            ExerciseCategory("GO OUTSIDE!", outdoorExercises) { selectedExercise = it }
+            ExerciseCategory("GO OUTSIDE!", outdoorExercises) { exercise ->
+                openYouTube(context, exercise.youtubeQuery)
+            }
             Spacer(modifier = Modifier.height(24.dp))
         }
 
-        ExerciseCategory("STAY INDOORS", indoorExercises) { selectedExercise = it }
+        ExerciseCategory("STAY INDOORS", indoorExercises) { exercise ->
+            openYouTube(context, exercise.youtubeQuery)
+        }
         
         Spacer(modifier = Modifier.height(40.dp))
     }
+}
 
-    // PROFESSOR FEEDBACK: MAKE ICONS CLICKABLE
-    if (selectedExercise != null) {
-        AlertDialog(
-            onDismissRequest = { selectedExercise = null },
-            title = { Text(selectedExercise!!.name, fontWeight = FontWeight.Black) },
-            text = { Text(selectedExercise!!.reason) },
-            confirmButton = {
-                TextButton(onClick = { selectedExercise = null }) { Text("OK") }
-            }
-        )
-    }
+private fun openYouTube(context: Context, query: String) {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query=$query"))
+    context.startActivity(intent)
 }
 
 @Composable
@@ -124,7 +123,7 @@ fun ExerciseSuggestionCard(exercise: ExerciseSuggestion, onClick: () -> Unit) {
                 Spacer(modifier = Modifier.width(20.dp))
                 Column {
                     Text(text = exercise.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = Color.White)
-                    Text("Tap for info", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.5f))
+                    Text("Watch on YouTube", style = MaterialTheme.typography.labelSmall, color = Color.Cyan, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -143,21 +142,21 @@ fun getCommuteAdvice(aqi: Int): String {
 
 fun getExerciseSuggestions(aqi: Int): List<ExerciseSuggestion> {
     val indoor = listOf(
-        ExerciseSuggestion("Yoga", "Indoor", "🧘", "yoga.json", "Deep breathing exercises like Yoga are best done indoors when AQI is high to avoid inhaling pollutants."),
-        ExerciseSuggestion("Home Workout", "Indoor", "💪", "workout.json", "Maintain your fitness goals inside. Use an air purifier if available for maximum safety."),
-        ExerciseSuggestion("Stretching", "Indoor", "🤸", "stretching.json", "Keep your joints flexible without increasing your respiratory rate too much."),
-        ExerciseSuggestion("Treadmill", "Indoor", "🏃", "treadmill.json", "Cardio is safer indoors today. It keeps your heart healthy without exposing your lungs to heavy particles.")
+        ExerciseSuggestion("Yoga", "Indoor", "🧘", "yoga.json", "yoga+for+breathing+and+detox"),
+        ExerciseSuggestion("Home Workout", "Indoor", "💪", "workout.json", "full+body+indoor+workout+no+equipment"),
+        ExerciseSuggestion("Stretching", "Indoor", "🤸", "stretching.json", "full+body+stretching+routine"),
+        ExerciseSuggestion("Treadmill", "Indoor", "🏃", "treadmill.json", "treadmill+workout+for+beginners")
     )
 
     val outdoor = when {
         aqi <= 50 -> listOf(
-            ExerciseSuggestion("Running", "Outdoor", "🏃‍♀️", "running.json", "The air is crystal clear! Perfect day for a long distance run."),
-            ExerciseSuggestion("Cycling", "Outdoor", "🚴", "cycling.json", "Great wind conditions and low pollution. Excellent for a neighborhood ride."),
-            ExerciseSuggestion("Hiking", "Outdoor", "🥾", "hiking.json", "Nature is calling. The oxygen levels are peak right now.")
+            ExerciseSuggestion("Running", "Outdoor", "🏃‍♀️", "running.json", "running+tips+for+beginners"),
+            ExerciseSuggestion("Cycling", "Outdoor", "🚴", "cycling.json", "cycling+training+guide"),
+            ExerciseSuggestion("Hiking", "Outdoor", "🥾", "hiking.json", "scenic+hiking+vlog")
         )
         aqi <= 100 -> listOf(
-            ExerciseSuggestion("Briskwalking", "Outdoor", "🚶‍♀️", "walking.json", "Good air for a light walk. Avoid areas with heavy traffic if possible."),
-            ExerciseSuggestion("Light Jogging", "Outdoor", "🏃", "jogging.json", "Safe for most people. If you feel any irritation, move your workout inside.")
+            ExerciseSuggestion("Briskwalking", "Outdoor", "🚶‍♀️", "walking.json", "brisk+walking+benefits"),
+            ExerciseSuggestion("Light Jogging", "Outdoor", "🏃", "jogging.json", "light+jogging+warmup")
         )
         else -> emptyList()
     }
