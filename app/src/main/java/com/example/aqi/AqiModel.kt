@@ -13,7 +13,8 @@ data class IaqiMetrics(
     @SerializedName("o3") val o3: Value? = null,
     @SerializedName("t") val temperature: Value? = null,
     @SerializedName("h") val humidity: Value? = null,
-    @SerializedName("w") val wind: Value? = null
+    @SerializedName("w") val wind: Value? = null,
+    @SerializedName("p") val pressure: Value? = null
 )
 data class Value(@SerializedName("v") val value: Float)
 data class DailyForecasts(val daily: ForecastDetails)
@@ -25,6 +26,15 @@ data class OpenWeatherResponse(val list: List<OwAirQualityData>)
 data class OwAirQualityData(val main: OwMain, val components: OwComponents, val dt: Long)
 data class OwMain(val aqi: Int)
 data class OwComponents(val pm2_5: Float, val pm10: Float)
+
+// --- OPENWEATHER CURRENT WEATHER MODELS (New) ---
+data class OwWeatherResponse(
+    val main: OwForecastMain,
+    val wind: OwForecastWind,
+    val name: String
+)
+
+// --- OPENWEATHER FORECAST MODELS ---
 data class OwForecastResponse(val list: List<OwForecastItem>)
 data class OwForecastItem(val main: OwForecastMain, val wind: OwForecastWind, val dt_txt: String)
 data class OwForecastMain(val temp: Float, val humidity: Float, val pressure: Float)
@@ -36,15 +46,6 @@ data class OpenAqiResult(val location: String, val measurements: List<OpenAqiMea
 data class OpenAqiMeasurement(val parameter: String, val value: Float, val unit: String)
 data class OpenAqiCoords(val latitude: Double, val longitude: Double)
 
-// --- DATA.GOV.IN MODELS (Indian Official) ---
-data class GovIndiaResponse(
-    val records: List<GovIndiaRecord>,
-    @SerializedName("total") val total: Int
-)
-data class GovIndiaRecord(
-    val city: String,
-    val station: String,
-    @SerializedName("pollutant_id") val pollutantId: String,
-    @SerializedName("pollutant_avg") val pollutantValue: String,
-    @SerializedName("last_update") val lastUpdate: String
-)
+// --- DATA.GOV.IN MODELS ---
+data class GovIndiaResponse(val records: List<GovIndiaRecord>, @SerializedName("total") val total: Int)
+data class GovIndiaRecord(val city: String, val station: String, @SerializedName("pollutant_id") val pollutantId: String, @SerializedName("pollutant_avg") val pollutantValue: String, @SerializedName("last_update") val lastUpdate: String)

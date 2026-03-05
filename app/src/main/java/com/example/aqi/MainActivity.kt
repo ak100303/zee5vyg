@@ -75,7 +75,6 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         
-        // START THE BACKGROUND MONITOR SERVICE
         startPersonalAqiService()
 
         lifecycleScope.launch(Dispatchers.IO) {
@@ -144,21 +143,34 @@ class MainActivity : ComponentActivity() {
 
                                     if (targetCoords != null) {
                                         val (lat, lon) = targetCoords
-                                        if (query == null && auth.currentUser?.uid != null) {
-                                            firestore.collection("users").document(auth.currentUser!!.uid).set(hashMapOf("lastLocation" to hashMapOf("lat" to lat, "lon" to lon)), SetOptions.merge())
+                                        
+                                        // --- BEST-OF-BOTH-WORLDS: Always fetch real weather ---
+                                        var realWeather: OwWeatherResponse? = null
+                                        if (owKey.isNotEmpty()) {
+                                            realWeather = try { apiService.getCurrentWeather(lat, lon, "metric", owKey) } catch(e: Exception) { null }
                                         }
-
-                                        val res = try { apiService.getHyperlocalAqi(lat, lon, BuildConfig.API_KEY) } catch (e: Exception) { null }
+                                        
+                                        var res = try { apiService.getHyperlocalAqi(lat, lon, BuildConfig.API_KEY) } catch (e: Exception) { null }
                                         val lastRecords = db.aqiDao().getLastTwoRecords()
                                         val isStagnant = query == null && lastRecords.size >= 2 && res != null && res.status == "ok" && gson.fromJson(res.data, AqiData::class.java).aqi == lastRecords[0].aqi
 
                                         if (res != null && res.status == "ok" && !isStagnant) {
-                                            finalRes = res; finalSource = "waqi"
+                                            // INJECT ACCURATE WEATHER INTO WAQI DATA
+                                            if (realWeather != null) {
+                                                val waqiJson = gson.toJson(res)
+                                                val injectedJson = waqiJson.replace("\"t\":{\"v\":[^}]+}".toRegex(), "\"t\":{\"v\":${realWeather.main.temp}}")
+                                                                         .replace("\"h\":{\"v\":[^}]+}".toRegex(), "\"h\":{\"v\":${realWeather.main.humidity}}")
+                                                finalRes = gson.fromJson(injectedJson, AqiResponse::class.java)
+                                            } else {
+                                                finalRes = res
+                                            }
+                                            finalSource = "waqi"
                                         } else if (owKey.isNotEmpty()) {
                                             val owPollution = try { apiService.getOpenWeatherAqi(lat, lon, owKey) } catch (e: Exception) { null }
                                             if (owPollution != null && owPollution.list.isNotEmpty()) {
                                                 val aqiVal = calculateUsAqi(owPollution.list[0].components.pm2_5)
-                                                val json = """{"status":"ok","data":{"aqi":$aqiVal,"idx":9999,"city":{"name":"${query ?: "Local Area"}"},"iaqi":{"pm25":{"v":${owPollution.list[0].components.pm2_5}}}}}"""
+                                                val displayName = query ?: (lastRecords.firstOrNull()?.cityName ?: "Local Area")
+                                                val json = """{"status":"ok","data":{"aqi":$aqiVal,"idx":9999,"city":{"name":"$displayName"},"iaqi":{"pm25":{"v":${owPollution.list[0].components.pm2_5}},"t":{"v":${realWeather?.main?.temp ?: 0.0}},"h":{"v":${realWeather?.main?.humidity ?: 0.0}}}}}"""
                                                 finalRes = gson.fromJson(json, AqiResponse::class.java); finalSource = "openweather"
                                             }
                                         }
@@ -176,22 +188,14 @@ class MainActivity : ComponentActivity() {
                                     val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
                                     db.aqiDao().insertHourlyRecord(HourlyAqiEntity(date = dateStr, hour = hour, cityName = data.city.name, aqi = data.aqi, dataSource = resultPair.second))
                                 }
-                            } else if (query == null) {
-                                withContext(Dispatchers.IO) {
-                                    val lastRecords = db.aqiDao().getLastTwoRecords()
-                                    if (lastRecords.size >= 2) {
-                                        val prediction = (lastRecords[0].aqi + (lastRecords[0].aqi - lastRecords[1].aqi).coerceIn(-25, 25)).coerceIn(0, 500)
-                                        db.aqiDao().insertHourlyRecord(HourlyAqiEntity(date = SimpleDateFormat("yyyy-MM-dd").format(Date()), hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY), cityName = lastRecords[0].cityName, aqi = prediction, dataSource = "trend_prediction"))
-                                        if (aqiData != null) aqiData = aqiData!!.copy(aqi = prediction)
-                                    }
-                                }
+                            } else {
                                 isOffline = true
                             }
                         } catch (e: Exception) { isOffline = true } finally { isLoading = false }
                     }
                 }
 
-                val permsLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.RequestMultiplePermissions(), onResult = { perms -> if (perms.values.any { it }) { fetchData(false, null); setupBackgroundRecording() } })
+                val permsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { fetchData(false, null) }
                 LaunchedEffect(Unit) { permsLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }
 
                 if (showSearchDialog) {
@@ -212,11 +216,7 @@ class MainActivity : ComponentActivity() {
 
     private fun startPersonalAqiService() {
         val intent = Intent(this, PersonalAqiMonitorService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { startForegroundService(intent) } else { startService(intent) }
     }
 
     override fun onResume() {
@@ -266,7 +266,7 @@ fun MainScreen(isLoading: Boolean, isOffline: Boolean, errorMessage: String?, aq
                         Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Warning, contentDescription = null, tint = Color.Yellow, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Using Cached Data", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Service Outage: Real-time Recovery Active", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

@@ -36,7 +36,16 @@ interface AqiApiService {
         @Query("appid") apiKey: String
     ): OpenWeatherResponse
 
-    // OPENWEATHER WEATHER & FORECAST
+    // OPENWEATHER CURRENT WEATHER (For Real-time Temp/Hum)
+    @GET("https://api.openweathermap.org/data/2.5/weather")
+    suspend fun getCurrentWeather(
+        @Query("lat") lat: Double,
+        @Query("lon") lon: Double,
+        @Query("units") units: String = "metric",
+        @Query("appid") apiKey: String
+    ): OwWeatherResponse
+
+    // OPENWEATHER 5-DAY / 3-HOUR FORECAST (For Trend)
     @GET("https://api.openweathermap.org/data/2.5/forecast")
     suspend fun getOpenWeatherForecast(
         @Query("lat") lat: Double,

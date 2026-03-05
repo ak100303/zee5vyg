@@ -44,13 +44,12 @@ fun PersonalSensorScreen(onAqiChanged: (Int) -> Unit) {
             if (snapshot != null && snapshot.exists()) {
                 ppmValue = snapshot.getDouble("ppm")?.toFloat() ?: 400f
                 tempValue = snapshot.getDouble("temp")?.toFloat() ?: 0f
-                humValue = snapshot.getDouble("humidity")?.toFloat() ?: 0f
+                
+                // FIXED: Read from 'humi' field instead of 'humidity'
+                humValue = snapshot.getDouble("humi")?.toFloat() ?: 0f
                 
                 val newAqi = snapshot.getLong("aqi")?.toInt() ?: calculateAqiFromPpm(ppmValue)
                 aqiValue = newAqi
-                
-                // Alert logic is now handled by PersonalAqiMonitorService
-                // ensuring it works even when the app is closed.
                 
                 onAqiChanged(newAqi)
                 lastUpdate = "Live Lab-Grade Stream"
