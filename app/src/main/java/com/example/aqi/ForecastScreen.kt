@@ -75,7 +75,7 @@ fun ForecastScreen(aqiData: AqiData) {
         )
         
         Text(
-            text = "Station: ${aqiData.city.name}",
+            text = "Station: ${aqiData.city?.name ?: "Unknown Location"}",
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
             color = Color.White.copy(alpha = 0.6f)

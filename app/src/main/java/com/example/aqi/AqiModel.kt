@@ -5,8 +5,9 @@ import com.google.gson.annotations.SerializedName
 
 // --- WAQI MODELS ---
 data class AqiResponse(val status: String, val data: JsonElement)
-data class AqiData(val aqi: Int, val idx: Int, val city: City, val iaqi: IaqiMetrics, val forecast: DailyForecasts?)
-data class City(val name: String, val geo: List<Double>)
+data class AqiData(val aqi: Int, val idx: Int?, val city: City?, val iaqi: IaqiMetrics, val forecast: DailyForecasts?, val time: AqiTime?)
+data class City(val name: String, val geo: List<Double>?)
+data class AqiTime(val s: String, val tz: String, val v: Long)
 data class IaqiMetrics(
     @SerializedName("pm25") val pm25: Value? = null,
     @SerializedName("pm10") val pm10: Value? = null,

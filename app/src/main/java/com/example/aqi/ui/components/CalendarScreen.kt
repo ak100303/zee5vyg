@@ -34,6 +34,9 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -66,86 +69,66 @@ fun CalendarScreen(cityName: String, forecasts: ForecastDetails?) {
         helper.get(Calendar.DAY_OF_WEEK) - 1
     }
 
-    LaunchedEffect(viewDate, selectedDayOfMonth) {
+    // SYNC CLOUD -> LOCAL
+    LaunchedEffect(viewDate) {
         val userId = auth.currentUser?.uid ?: return@LaunchedEffect
-        val cal = viewDate.clone() as Calendar
-        cal.set(Calendar.DAY_OF_MONTH, selectedDayOfMonth)
-        val selectedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(cal.time)
         val monthStr = SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(viewDate.time)
+        val daysInMonth = viewDate.getActualMaximum(Calendar.DAY_OF_MONTH)
         
-        scope.launch {
+        scope.launch(Dispatchers.IO) {
             try {
-                val snapshot = firestore.collection("users").document(userId)
-                    .collection("history")
-                    .whereGreaterThanOrEqualTo("date", "$monthStr-01")
-                    .whereLessThanOrEqualTo("date", "$monthStr-31")
-                    .get().await()
-                
-                snapshot.documents.forEach { doc ->
-                    val date = doc.getString("date") ?: ""
-                    val aqi = doc.getLong("aqi")?.toInt() ?: 0
-                    val city = doc.getString("cityName") ?: ""
-                    if (date.isNotEmpty() && city.isNotEmpty()) {
-                        db.aqiDao().insertAqiRecord(AqiEntity(date, city, aqi))
+                val deferreds = (1..daysInMonth).map { day ->
+                    async {
+                        val dateStr = String.format(Locale.getDefault(), "%s-%02d", monthStr, day)
+                        try {
+                            val hourlySnap = firestore.collection("users").document(userId)
+                                .collection("history").document(dateStr)
+                                .collection("hourly").get().await()
+                            
+                            hourlySnap.documents.mapNotNull { hDoc ->
+                                val hour = hDoc.id.toIntOrNull() ?: return@mapNotNull null
+                                val aqi = hDoc.getLong("aqi")?.toInt() ?: 0
+                                val source = hDoc.getString("dataSource") ?: "waqi"
+                                val city = hDoc.getString("cityName") ?: "Chennai"
+                                HourlyAqiEntity(0, dateStr, hour, city, aqi, source)
+                            }
+                        } catch (e: Exception) {
+                            emptyList<HourlyAqiEntity>()
+                        }
                     }
                 }
-
-                val hourlySnapshot = firestore.collection("users").document(userId)
-                    .collection("history").document(selectedDateStr)
-                    .collection("hourly").get().await()
                 
-                hourlySnapshot.documents.forEach { hDoc ->
-                    val hour = hDoc.id.toIntOrNull() ?: 0
-                    val hAqi = hDoc.getLong("aqi")?.toInt() ?: 0
-                    val hCity = hDoc.getString("cityName") ?: ""
-                    val source = hDoc.getString("dataSource") ?: "unknown"
-                    if (hCity.isNotEmpty()) {
-                        db.aqiDao().insertHourlyRecord(HourlyAqiEntity(0, selectedDateStr, hour, hCity, hAqi, source))
-                    }
+                val allRecords = deferreds.awaitAll().flatten()
+                allRecords.forEach { record ->
+                    db.aqiDao().insertHourlyRecord(record)
                 }
-            } catch (e: Exception) {}
+            } catch (e: Exception) {
+                // Log or ignore
+            }
         }
     }
 
     val monthQuery = remember(viewDate) { SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(viewDate.time) + "%" }
-    val historyRecords by db.aqiDao().getAqiRecordsForMonth(monthQuery).collectAsState(initial = emptyList<AqiEntity>())
+    
+    // NEW: Load highest hourly records to highlight EVERY day that has data
+    val hourlyRecordsForMonth by produceState<List<HourlyAqiEntity>>(initialValue = emptyList(), monthQuery) {
+        value = db.aqiDao().getHighestHourlyRecordsForMonthByCity(monthQuery, cityName)
+    }
 
     val selectedFullDateStr = remember(viewDate, selectedDayOfMonth) {
         val cal = viewDate.clone() as Calendar
         cal.set(Calendar.DAY_OF_MONTH, selectedDayOfMonth)
         SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(cal.time)
     }
-    val hourlyRecords by db.aqiDao().getHourlyRecordsForDay(selectedFullDateStr).collectAsState(initial = emptyList<HourlyAqiEntity>())
+    val hourlyRecordsForDay by db.aqiDao().getHourlyRecordsForDayByCity(selectedFullDateStr, cityName).collectAsState(initial = emptyList())
 
-    val aqiMap = remember(historyRecords, forecasts, viewDate) {
+    val aqiMap = remember(hourlyRecordsForMonth) {
         val map = mutableMapOf<Int, Int>()
-        historyRecords.forEach { entity ->
+        hourlyRecordsForMonth.forEach { entity ->
             val day = entity.date.substringAfterLast("-").toIntOrNull()
             if (day != null) {
                 val currentMax = map[day] ?: 0
                 if (entity.aqi > currentMax) map[day] = entity.aqi
-            }
-        }
-        if (isCurrentMonth && forecasts != null) {
-            val df = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-            val forecastDays = (forecasts.pm25?.map { it.day } ?: emptyList()) + (forecasts.pm10?.map { it.day } ?: emptyList()) + (forecasts.o3?.map { it.day } ?: emptyList())
-            forecastDays.distinct().forEach { dayStr ->
-                if (dayStr <= todayStr) {
-                    try {
-                        val date = df.parse(dayStr)
-                        val cal = Calendar.getInstance().apply { time = date!! }
-                        if (cal.get(Calendar.MONTH) == viewDate.get(Calendar.MONTH) && cal.get(Calendar.YEAR) == viewDate.get(Calendar.YEAR)) {
-                            val dayInt = cal.get(Calendar.DAY_OF_MONTH)
-                            if (!map.containsKey(dayInt)) {
-                                val pm25 = forecasts.pm25?.find { it.day == dayStr }?.avg
-                                val pm10 = forecasts.pm10?.find { it.day == dayStr }?.avg
-                                val o3 = forecasts.o3?.find { it.day == dayStr }?.avg
-                                val maxAvg = listOfNotNull(pm25, pm10, o3).maxOrNull()
-                                if (maxAvg != null) map[dayInt] = maxAvg
-                            }
-                        }
-                    } catch (e: Exception) {}
-                }
             }
         }
         map
@@ -153,8 +136,8 @@ fun CalendarScreen(cityName: String, forecasts: ForecastDetails?) {
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
         Spacer(modifier = Modifier.height(40.dp))
-        Text(text = "Historical Record", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = Color.White)
-        Text(text = "Multi-Source Journey Active", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, color = Color(0xFF00E676))
+        Text(text = "Environmental History", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = Color.White)
+        Text(text = "Syncing cloud records...", style = MaterialTheme.typography.bodySmall, color = Color.Cyan, fontWeight = FontWeight.Bold)
         
         Spacer(modifier = Modifier.height(16.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -169,7 +152,7 @@ fun CalendarScreen(cityName: String, forecasts: ForecastDetails?) {
         
         Spacer(modifier = Modifier.height(24.dp))
         Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))) {
-            Box(modifier = Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.25f)).blur(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 20.dp else 0.dp))
+            Box(modifier = Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.25f)).blur(20.dp))
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
                     listOf("S", "M", "T", "W", "T", "F", "S").forEach { day ->
@@ -191,9 +174,9 @@ fun CalendarScreen(cityName: String, forecasts: ForecastDetails?) {
         }
         
         Spacer(modifier = Modifier.height(24.dp))
-        Text(text = "Timely Trends: Day $selectedDayOfMonth", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, color = Color.White)
+        Text(text = "24-Hour Trend: Day $selectedDayOfMonth", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, color = Color.White)
         Spacer(modifier = Modifier.height(12.dp))
-        DailyHourlyChart(hourlyRecords = hourlyRecords)
+        DailyHourlyChart(hourlyRecords = hourlyRecordsForDay)
         Spacer(modifier = Modifier.height(24.dp))
         CalendarLegend()
         Spacer(modifier = Modifier.height(80.dp))

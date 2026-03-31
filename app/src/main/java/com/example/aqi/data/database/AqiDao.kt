@@ -20,15 +20,22 @@ interface AqiDao {
     @Query("SELECT * FROM aqi_hourly_history WHERE date = :date ORDER BY hour ASC")
     fun getHourlyRecordsForDay(date: String): Flow<List<HourlyAqiEntity>>
 
-    // Used for Gap Filling: Gets raw list without Flow
+    // New: filter by city name for day view
+    @Query("SELECT * FROM aqi_hourly_history WHERE date = :date AND cityName = :cityName ORDER BY hour ASC")
+    fun getHourlyRecordsForDayByCity(date: String, cityName: String): Flow<List<HourlyAqiEntity>>
+
+    @Query("SELECT * FROM aqi_hourly_history WHERE date LIKE :monthQuery ORDER BY date ASC, aqi DESC")
+    suspend fun getHighestHourlyRecordsForMonth(monthQuery: String): List<HourlyAqiEntity>
+
+    // New: filter by city name for month view
+    @Query("SELECT * FROM aqi_hourly_history WHERE date LIKE :monthQuery AND cityName = :cityName ORDER BY date ASC, aqi DESC")
+    suspend fun getHighestHourlyRecordsForMonthByCity(monthQuery: String, cityName: String): List<HourlyAqiEntity>
+
     @Query("SELECT * FROM aqi_hourly_history WHERE date = :date ORDER BY hour ASC")
     suspend fun getHourlyRecordsListForDay(date: String): List<HourlyAqiEntity>
 
     @Query("SELECT * FROM aqi_history WHERE date = :date AND cityName = :cityName LIMIT 1")
     suspend fun getAqiRecordForDateAndCity(date: String, cityName: String): AqiEntity?
-
-    @Query("SELECT DISTINCT cityName FROM aqi_history")
-    fun getAllRecordedCities(): Flow<List<String>>
 
     @Query("SELECT * FROM aqi_hourly_history ORDER BY id DESC LIMIT 2")
     suspend fun getLastTwoRecords(): List<HourlyAqiEntity>

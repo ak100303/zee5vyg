@@ -22,10 +22,13 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun AqiGauge(aqi: Int) {
+    // Ensure we don't pass negative or zero values during init
+    val safeAqi = aqi.coerceAtLeast(0).toFloat()
+    
     var animationTarget by remember { mutableFloatStateOf(0f) }
 
-    LaunchedEffect(aqi) {
-        animationTarget = aqi.toFloat()
+    LaunchedEffect(safeAqi) {
+        animationTarget = safeAqi
     }
 
     val animatedAqi by animateFloatAsState(
@@ -46,8 +49,9 @@ fun AqiGauge(aqi: Int) {
 
     Box(contentAlignment = Alignment.Center, modifier = Modifier.size(280.dp)) {
         Canvas(modifier = Modifier.fillMaxSize()) {
+            val center = Offset(size.width / 2, size.height / 2)
             val strokeWidth = 35f
-            
+
             // Background Track
             drawArc(
                 color = Color.White.copy(alpha = 0.15f),
@@ -57,11 +61,14 @@ fun AqiGauge(aqi: Int) {
                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
             )
 
-            // Progress Arc (Fixed to support max 500)
+            // Progress Arc - With NaN Safety
+            val sweepAngle = (animatedAqi / 500f * 270f)
+            val finalSweep = if (sweepAngle.isNaN()) 0f else sweepAngle.coerceIn(0f, 270f)
+
             drawArc(
                 color = aqiColor,
                 startAngle = 135f,
-                sweepAngle = (animatedAqi / 500f * 270f).coerceIn(0f, 270f),
+                sweepAngle = finalSweep,
                 useCenter = false,
                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
             )

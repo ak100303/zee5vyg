@@ -105,7 +105,7 @@ class AqiBackgroundWorker(
                     if (response.status == "ok" && response.data.isJsonObject) {
                         val data = gson.fromJson(response.data, AqiData::class.java)
                         recordedAqi = data.aqi
-                        recordedCity = data.city.name
+                        recordedCity = data.city?.name ?: "Unknown"
                         dataSource = "waqi"
                     }
                 } catch (e: Exception) { Log.e("AQI_WORKER", "WAQI Failed") }
