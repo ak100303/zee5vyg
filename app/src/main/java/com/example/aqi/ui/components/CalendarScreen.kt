@@ -112,7 +112,7 @@ fun CalendarScreen(cityName: String, forecasts: ForecastDetails?) {
     
     // NEW: Load highest hourly records to highlight EVERY day that has data
     val hourlyRecordsForMonth by produceState<List<HourlyAqiEntity>>(initialValue = emptyList(), monthQuery) {
-        value = db.aqiDao().getHighestHourlyRecordsForMonthByCity(monthQuery, cityName)
+        value = db.aqiDao().getHighestHourlyRecordsForMonth(monthQuery)
     }
 
     val selectedFullDateStr = remember(viewDate, selectedDayOfMonth) {
@@ -120,7 +120,7 @@ fun CalendarScreen(cityName: String, forecasts: ForecastDetails?) {
         cal.set(Calendar.DAY_OF_MONTH, selectedDayOfMonth)
         SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(cal.time)
     }
-    val hourlyRecordsForDay by db.aqiDao().getHourlyRecordsForDayByCity(selectedFullDateStr, cityName).collectAsState(initial = emptyList())
+    val hourlyRecordsForDay by db.aqiDao().getHourlyRecordsForDay(selectedFullDateStr).collectAsState(initial = emptyList())
 
     val aqiMap = remember(hourlyRecordsForMonth) {
         val map = mutableMapOf<Int, Int>()

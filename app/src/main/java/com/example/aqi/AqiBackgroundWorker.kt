@@ -126,11 +126,6 @@ class AqiBackgroundWorker(
             }
 
             if (recordedAqi != null && recordedCity != null) {
-                // TEST ALERT LOGIC: If above 80, send notification
-                if (recordedAqi > 80) {
-                    sendAqiAlert(recordedAqi, recordedCity)
-                }
-
                 // Save Local
                 db.aqiDao().insertHourlyRecord(HourlyAqiEntity(date = dateStr, hour = hour, cityName = recordedCity, aqi = recordedAqi, dataSource = dataSource))
                 db.aqiDao().insertAqiRecord(AqiEntity(dateStr, recordedCity, recordedAqi))
@@ -140,8 +135,47 @@ class AqiBackgroundWorker(
                     val record = hashMapOf("aqi" to recordedAqi, "cityName" to recordedCity, "dataSource" to dataSource, "timestamp" to com.google.firebase.Timestamp.now())
                     firestore.collection("users").document(userId).collection("history").document(dateStr).collection("hourly").document(hour.toString()).set(record)
                 }
+                
+                // Show hourly update notification if needed (optional, currently only > 80)
+                if (recordedAqi > 80) {
+                    sendAqiAlert(recordedAqi, recordedCity)
+                }
             }
+
+            // SYNC CLOUD DATA: Pull missing records from the last 7 days (to catch GitHub Action results)
+            if (userId != null) {
+                syncHistoricalCloudData(userId, db, firestore, daysToSync = 7)
+            }
+
             Result.success()
         } catch (e: Exception) { Result.retry() }
+    }
+
+    private suspend fun syncHistoricalCloudData(userId: String, db: AqiDatabase, firestore: FirebaseFirestore, daysToSync: Int) {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val calendar = Calendar.getInstance()
+        
+        for (i in 0 until daysToSync) {
+            val dateStr = sdf.format(calendar.time)
+            try {
+                val hourlySnap = firestore.collection("users").document(userId)
+                    .collection("history").document(dateStr)
+                    .collection("hourly").get().await()
+                
+                hourlySnap.documents.forEach { hDoc ->
+                    val source = hDoc.getString("dataSource") ?: "cloud"
+                    if (source == "openweather") return@forEach // FILTER OUT WRONG READINGS
+
+                    val h = hDoc.id.toIntOrNull() ?: return@forEach
+                    val aqi = hDoc.getLong("aqi")?.toInt() ?: return@forEach
+                    val city = hDoc.getString("cityName") ?: "Unknown"
+                    
+                    db.aqiDao().insertHourlyRecord(HourlyAqiEntity(date = dateStr, hour = h, cityName = city, aqi = aqi, dataSource = source))
+                }
+            } catch (e: Exception) {
+                Log.e("AQI_SYNC", "Failed to sync data for $dateStr: ${e.message}")
+            }
+            calendar.add(Calendar.DAY_OF_YEAR, -1)
+        }
     }
 }
