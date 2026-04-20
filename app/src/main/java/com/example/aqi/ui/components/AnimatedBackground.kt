@@ -18,6 +18,7 @@ import com.example.aqi.R
 import kotlinx.coroutines.isActive
 import kotlin.math.cos
 import kotlin.random.Random
+import java.util.Calendar
 
 private data class Particle(
     var x: Float,
@@ -29,14 +30,24 @@ private data class Particle(
 )
 
 @Composable
-fun AnimatedBackground(aqi: Int) {
+fun AnimatedBackground(aqi: Int, localHour: Int? = null) {
     val isPolluted = aqi >= 81
+
+    val currentHour = localHour ?: remember { Calendar.getInstance().get(Calendar.HOUR_OF_DAY) }
+
+    val bgRes = when (currentHour) {
+        in 4..6 -> if (isPolluted) R.drawable.pollutant_dawn else R.drawable.dawn
+        in 7..9 -> if (isPolluted) R.drawable.pollutant_morning else R.drawable.morning
+        in 10..15 -> if (isPolluted) R.drawable.bg_polluted else R.drawable.bg_clear
+        in 16..18 -> if (isPolluted) R.drawable.pollutant_evening else R.drawable.evening
+        else -> if (isPolluted) R.drawable.pollutant_night else R.drawable.night
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // 1. Static Image Layer with smooth Crossfade transition
-        Crossfade(targetState = isPolluted, animationSpec = tween(3000), label = "BgTransition") { polluted ->
+        Crossfade(targetState = bgRes, animationSpec = tween(3000), label = "BgTransition") { resId ->
             Image(
-                painter = painterResource(id = if (polluted) R.drawable.bg_polluted else R.drawable.bg_clear),
+                painter = painterResource(id = resId),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop

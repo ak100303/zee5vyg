@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:drawable="@drawable/ic_pixel_cloud">
+
+    <!-- Overall scaling and fade in -->
+    <target android:name="entire_logo">
+        <aapt:attr name="android:animation">
+            <set>
+                <objectAnimator
+                    android:propertyName="scaleX"
+                    android:valueFrom="0.5"
+                    android:valueTo="1.0"
+                    android:duration="800"
+                    android:interpolator="@android:interpolator/overshoot" />
+                <objectAnimator
+                    android:propertyName="scaleY"
+                    android:valueFrom="0.5"
+                    android:valueTo="1.0"
+                    android:duration="800"
+                    android:interpolator="@android:interpolator/overshoot" />
+            </set>
+        </aapt:attr>
+    </target>
+
+    <!-- Pulse the cloud fill to show activity -->
+    <target android:name="cloud_fill">
+        <aapt:attr name="android:animation">
+            <set android:ordering="sequentially">
+                <objectAnimator
+                    android:propertyName="fillColor"
+                    android:valueFrom="#33FFFFFF"
+                    android:valueTo="#99FFFFFF"
+                    android:duration="500"
+                    android:valueType="colorType"/>
+                <objectAnimator
+                    android:propertyName="fillColor"
+                    android:valueFrom="#99FFFFFF"
+                    android:valueTo="#33FFFFFF"
+                    android:duration="500"
+                    android:valueType="colorType"/>
+            </set>
+        </aapt:attr>
+    </target>
+    
+    <!-- Fade the leaves from dormant to bright green -->
+    <target android:name="leaves">
+        <aapt:attr name="android:animation">
+            <set android:ordering="sequentially">
+                <objectAnimator
+                    android:propertyName="fillColor"
+                    android:valueFrom="#334CAF50"
+                    android:valueTo="#FF4CAF50"
+                    android:duration="600"
+                    android:valueType="colorType"/>
+            </set>
+        </aapt:attr>
+    </target>
+
+    <!-- Wind/Clean air blows in -->
+    <target android:name="wind">
+        <aapt:attr name="android:animation">
+            <set android:ordering="sequentially">
+                <objectAnimator
+                    android:propertyName="fillColor"
+                    android:valueFrom="#0003DAC6"
+                    android:valueTo="#FF03DAC6"
+                    android:startOffset="300"
+                    android:duration="600"
+                    android:valueType="colorType"/>
+            </set>
+        </aapt:attr>
+    </target>
+
+</animated-vector>

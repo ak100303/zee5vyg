@@ -317,8 +317,14 @@ fun MainScreen(isLoading: Boolean, isOffline: Boolean, errorMessage: String?, aq
             var personalAqi by remember { mutableIntStateOf(0) }
             val currentAqi = if (pagerState.currentPage == 4) personalAqi else aqiData.aqi
 
+            val localHour = remember(aqiData.time?.s) {
+                try {
+                    aqiData.time?.s?.split(" ")?.getOrNull(1)?.split(":")?.getOrNull(0)?.toIntOrNull()
+                } catch (e: Exception) { null }
+            }
+
             Box(modifier = Modifier.fillMaxSize()) {
-                AnimatedBackground(aqi = currentAqi)
+                AnimatedBackground(aqi = currentAqi, localHour = localHour)
                 HorizontalPager(state = pagerState) { page ->
                     when (page) {
                         0 -> CurrentAqiScreen(aqiData, onRefresh, onStationLongPress, isOffline)

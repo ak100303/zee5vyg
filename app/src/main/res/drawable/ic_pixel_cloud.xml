@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="288dp"
+    android:height="288dp"
+    android:viewportWidth="288"
+    android:viewportHeight="288">
+
+    <group
+        android:name="entire_logo"
+        android:pivotX="144.0"
+        android:pivotY="144.0">
+        
+        <!-- Stardew Style: Warm Off-White clouds with dark earthy outlines -->
+        <group android:name="cloud_group">
+            <path
+                android:name="cloud_fill"
+                android:fillColor="#F6F6EB"
+                android:pathData="M90,54 h9 v9 h-9 Z M99,54 h9 v9 h-9 Z M108,54 h9 v9 h-9 Z M117,54 h9 v9 h-9 Z M126,54 h9 v9 h-9 Z M135,54 h9 v9 h-9 Z M144,54 h9 v9 h-9 Z M153,54 h9 v9 h-9 Z M72,63 h9 v9 h-9 Z M81,63 h9 v9 h-9 Z M90,63 h9 v9 h-9 Z M99,63 h9 v9 h-9 Z M108,63 h9 v9 h-9 Z M117,63 h9 v9 h-9 Z M126,63 h9 v9 h-9 Z M135,63 h9 v9 h-9 Z M144,63 h9 v9 h-9 Z M153,63 h9 v9 h-9 Z M162,63 h9 v9 h-9 Z M171,63 h9 v9 h-9 Z M54,72 h9 v9 h-9 Z M63,72 h9 v9 h-9 Z M72,72 h9 v9 h-9 Z M81,72 h9 v9 h-9 Z M90,72 h9 v9 h-9 Z M99,72 h9 v9 h-9 Z M108,72 h9 v9 h-9 Z M117,72 h9 v9 h-9 Z M126,72 h9 v9 h-9 Z M135,72 h9 v9 h-9 Z M144,72 h9 v9 h-9 Z M153,72 h9 v9 h-9 Z M162,72 h9 v9 h-9 Z M171,72 h9 v9 h-9 Z M180,72 h9 v9 h-9 Z M189,72 h9 v9 h-9 Z M54,81 h9 v9 h-9 Z M63,81 h9 v9 h-9 Z M72,81 h9 v9 h-9 Z M81,81 h9 v9 h-9 Z M90,81 h9 v9 h-9 Z M99,81 h9 v9 h-9 Z M108,81 h9 v9 h-9 Z M117,81 h9 v9 h-9 Z M45,90 h9 v9 h-9 Z M54,90 h9 v9 h-9 Z M63,90 h9 v9 h-9 Z M72,90 h9 v9 h-9 Z M81,90 h9 v9 h-9 Z M90,90 h9 v9 h-9 Z M99,90 h9 v9 h-9 Z M45,99 h9 v9 h-9 Z M54,99 h9 v9 h-9 Z M63,99 h9 v9 h-9 Z M72,99 h9 v9 h-9 Z M81,99 h9 v9 h-9 Z M90,99 h9 v9 h-9 Z M36,108 h9 v9 h-9 Z M45,108 h9 v9 h-9 Z M54,108 h9 v9 h-9 Z M63,108 h9 v9 h-9 Z M72,108 h9 v9 h-9 Z M81,108 h9 v9 h-9 Z M90,108 h9 v9 h-9 Z M36,117 h9 v9 h-9 Z M45,117 h9 v9 h-9 Z M54,117 h9 v9 h-9 Z M63,117 h9 v9 h-9 Z M72,117 h9 v9 h-9 Z M81,117 h9 v9 h-9 Z M90,117 h9 v9 h-9 Z M36,126 h9 v9 h-9 Z M45,126 h9 v9 h-9 Z M54,126 h9 v9 h-9 Z M63,126 h9 v9 h-9 Z M72,126 h9 v9 h-9 Z M81,126 h9 v9 h-9 Z M90,126 h9 v9 h-9 Z M36,135 h9 v9 h-9 Z M45,135 h9 v9 h-9 Z M54,135 h9 v9 h-9 Z M63,135 h9 v9 h-9 Z M72,135 h9 v9 h-9 Z M81,135 h9 v9 h-9 Z M90,135 h9 v9 h-9 Z M27,144 h9 v9 h-9 Z M36,144 h9 v9 h-9 Z M45,144 h9 v9 h-9 Z M54,144 h9 v9 h-9 Z M63,144 h9 v9 h-9 Z M72,144 h9 v9 h-9 Z M81,144 h9 v9 h-9 Z M90,144 h9 v9 h-9 Z M27,153 h9 v9 h-9 Z M36,153 h9 v9 h-9 Z M45,153 h9 v9 h-9 Z M54,153 h9 v9 h-9 Z M63,153 h9 v9 h-9 Z M72,153 h9 v9 h-9 Z Math.max(0,18) M81,153 h9 v9 h-9 Z M90,153 h9 v9 h-9 Z M36,162 h9 v9 h-9 Z M45,162 h9 v9 h-9 Z M54,162 h9 v9 h-9 Z M63,162 h9 v9 h-9 Z M72,162 h9 v9 h-9 Z M81,162 h9 v9 h-9 Z M90,162 h9 v9 h-9 Z M99,162 h9 v9 h-9 Z" />
+            <path
+                android:name="cloud_outline"
+                android:fillColor="#343D4E"
+                android:pathData="M90,45 h9 v9 h-9 Z M99,45 h9 v9 h-9 Z M108,45 h9 v9 h-9 Z M117,45 h9 v9 h-9 Z M126,45 h9 v9 h-9 Z M135,45 h9 v9 h-9 Z M144,45 h9 v9 h-9 Z M153,45 h9 v9 h-9 Z M72,54 h9 v9 h-9 Z M81,54 h9 v9 h-9 Z M162,54 h9 v9 h-9 Z M171,54 h9 v9 h-9 Z M54,63 h9 v9 h-9 Z M63,63 h9 v9 h-9 Z M180,63 h9 v9 h-9 Z M189,63 h9 v9 h-9 Z M45,72 h9 v9 h-9 Z M198,72 h9 v9 h-9 Z M45,81 h9 v9 h-9 Z M126,81 h9 v9 h-9 Z M135,81 h9 v9 h-9 Z M144,81 h9 v9 h-9 Z M153,81 h9 v9 h-9 Z M162,81 h9 v9 h-9 Z M171,81 h9 v9 h-9 Z M180,81 h9 v9 h-9 Z M189,81 h9 v9 h-9 Z M36,90 h9 v9 h-9 Z M108,90 h9 v9 h-9 Z M117,90 h9 v9 h-9 Z M198,90 h9 v9 h-9 Z M36,99 h9 v9 h-9 Z M99,99 h9 v9 h-9 Z M207,99 h9 v9 h-9 Z M27,108 h9 v9 h-9 Z M99,108 h9 v9 h-9 Z M207,108 h9 v9 h-9 Z M27,117 h9 v9 h-9 Z M99,117 h9 v9 h-9 Z M207,117 h9 v9 h-9 Z M27,126 h9 v9 h-9 Z M99,126 h9 v9 h-9 Z M207,126 h9 v9 h-9 Z M18,135 h9 v9 h-9 Z M27,135 h9 v9 h-9 Z M99,135 h9 v9 h-9 Z M207,135 h9 v9 h-9 Z M18,144 h9 v9 h-9 Z M99,144 h9 v9 h-9 Z M207,144 h9 v9 h-9 Z M216,144 h9 v9 h-9 Z M18,153 h9 v9 h-9 Z M99,153 h9 v9 h-9 Z M207,153 h9 v9 h-9 Z M216,153 h9 v9 h-9 Z M18,162 h9 v9 h-9 Z M27,162 h9 v9 h-9 Z M108,162 h9 v9 h-9 Z M117,162 h9 v9 h-9 Z M126,162 h9 v9 h-9 Z M135,162 h9 v9 h-9 Z M144,162 h9 v9 h-9 Z M153,162 h9 v9 h-9 Z M162,162 h9 v9 h-9 Z M171,162 h9 v9 h-9 Z M180,162 h9 v9 h-9 Z M189,162 h9 v9 h-9 Z M198,162 h9 v9 h-9 Z M36,171 h9 v9 h-9 Z M45,171 h9 v9 h-9 Z M54,171 h9 v9 h-9 Z M63,171 h9 v9 h-9 Z M72,171 h9 v9 h-9 Z M81,171 h9 v9 h-9 Z M90,171 h9 v9 h-9 Z M99,171 h9 v9 h-9 Z" />
+        </group>
+
+        <!-- Stardew Valley Forest Green -->
+        <group android:name="leaf_group">
+            <path
+                android:name="leaves"
+                android:fillColor="#3A6B35"
+                android:pathData="M117,108 h9 v9 h-9 Z M72,189 h9 v9 h-9 Z" />
+        </group>
+
+        <!-- Retro Sky Blue -->
+        <group android:name="wind_group">
+            <path
+                android:name="wind"
+                android:fillColor="#8BB9D0"
+                android:pathData="M153,126 h9 v9 h-9 Z M144,171 h9 v9 h-9 Z" />
+        </group>
+    </group>
+</vector>
