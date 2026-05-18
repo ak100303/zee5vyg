@@ -18,21 +18,28 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 
 @Composable
 fun PersonalSensorScreen(onAqiChanged: (Int) -> Unit) {
     val firestore = remember { FirebaseFirestore.getInstance() }
+    val auth = remember { FirebaseAuth.getInstance() }
+    val currentUser = auth.currentUser
     
-    var ppmValue by remember { mutableFloatStateOf(400f) }
+    var ppmValue by remember { mutableFloatStateOf(0f) }
     var tempValue by remember { mutableFloatStateOf(0f) }
     var humValue by remember { mutableFloatStateOf(0f) }
     var aqiValue by remember { mutableIntStateOf(0) }
-    var lastUpdate by remember { mutableStateOf("Locating Station...") }
+    var lastUpdate by remember { mutableStateOf("Waiting for Sensor...") }
+    var hasReceivedData by remember { mutableStateOf(false) }
 
     // REAL-TIME LISTENER
-    LaunchedEffect(Unit) {
-        val docRef = firestore.collection("users").document("esp32_device")
+    LaunchedEffect(currentUser?.uid) {
+        val uid = currentUser?.uid ?: return@LaunchedEffect
+        
+        // Use the specific user's UID path so users don't see shared data
+        val docRef = firestore.collection("users").document(uid)
             .collection("iot_devices").document("station_01")
             
         docRef.addSnapshotListener { snapshot, e ->
@@ -42,15 +49,17 @@ fun PersonalSensorScreen(onAqiChanged: (Int) -> Unit) {
             }
 
             if (snapshot != null && snapshot.exists()) {
-                ppmValue = snapshot.getDouble("ppm")?.toFloat() ?: 400f
-                tempValue = snapshot.getDouble("temp")?.toFloat() ?: 0f
-                
-                // FIXED: Read from 'humi' field instead of 'humidity'
-                humValue = snapshot.getDouble("humi")?.toFloat() ?: 0f
-                
-                val newAqi = snapshot.getLong("aqi")?.toInt() ?: calculateAqiFromPpm(ppmValue)
+                val newPpm = snapshot.getDouble("ppm")?.toFloat() ?: 0f
+                val newTemp = snapshot.getDouble("temp")?.toFloat() ?: 0f
+                val newHum = snapshot.getDouble("humi")?.toFloat() ?: 0f
+                val newAqi = snapshot.getLong("aqi")?.toInt() ?: calculateAqiFromPpm(newPpm)
+
+                ppmValue = newPpm
+                tempValue = newTemp
+                humValue = newHum
                 aqiValue = newAqi
                 
+                hasReceivedData = true
                 onAqiChanged(newAqi)
                 lastUpdate = "Live Lab-Grade Stream"
             }
@@ -73,12 +82,15 @@ fun PersonalSensorScreen(onAqiChanged: (Int) -> Unit) {
         Spacer(modifier = Modifier.height(40.dp))
         
         Text("Internal Air Station", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = Color.White)
-        Surface(color = Color.Green.copy(alpha = 0.2f), shape = RoundedCornerShape(8.dp)) {
+        Surface(
+            color = if (hasReceivedData) Color.Green.copy(alpha = 0.2f) else Color.Red.copy(alpha = 0.2f), 
+            shape = RoundedCornerShape(8.dp)
+        ) {
             Text(
                 text = "● $lastUpdate", 
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
                 style = MaterialTheme.typography.labelSmall, 
-                color = Color.Green, 
+                color = if (hasReceivedData) Color.Green else Color.Red, 
                 fontWeight = FontWeight.Bold
             )
         }
@@ -86,21 +98,30 @@ fun PersonalSensorScreen(onAqiChanged: (Int) -> Unit) {
         Spacer(modifier = Modifier.height(48.dp))
 
         Box(modifier = Modifier.size(260.dp), contentAlignment = Alignment.Center) {
-            AqiGauge(aqi = animatedAqi.toInt()) 
+            // Always show the gauge, it will stay at 0 until hasReceivedData is true
+            AqiGauge(aqi = if (hasReceivedData) animatedAqi.toInt() else 0) 
+            
+            if (!hasReceivedData) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(50.dp),
+                    color = Color.White.copy(alpha = 0.1f),
+                    strokeWidth = 2.dp
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        SensorValueCard(label = "MQ135 SENSOR", value = String.format("%.1f", ppmValue), unit = "PPM", subValue = "Smoke, Alcohol, CO2")
+        SensorValueCard(label = "MQ135 SENSOR", value = if (hasReceivedData) String.format("%.1f", ppmValue) else "0.0", unit = "PPM", subValue = "Smoke, Alcohol, CO2")
 
         Spacer(modifier = Modifier.height(12.dp))
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(modifier = Modifier.weight(1f)) {
-                SensorValueCard(label = "TEMP", value = String.format("%.1f", tempValue), unit = "°C", subValue = "Indoor")
+                SensorValueCard(label = "TEMP", value = if (hasReceivedData) String.format("%.1f", tempValue) else "0.0", unit = "°C", subValue = "Indoor")
             }
             Box(modifier = Modifier.weight(1f)) {
-                SensorValueCard(label = "HUMIDITY", value = String.format("%.1f", humValue), unit = "%", subValue = "Indoor")
+                SensorValueCard(label = "HUMIDITY", value = if (hasReceivedData) String.format("%.1f", humValue) else "0.0", unit = "%", subValue = "Indoor")
             }
         }
 
@@ -108,7 +129,7 @@ fun PersonalSensorScreen(onAqiChanged: (Int) -> Unit) {
         
         Surface(color = Color.White.copy(alpha = 0.05f), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
             Text(
-                text = getPpmAdvice(ppmValue),
+                text = if (hasReceivedData) getPpmAdvice(ppmValue) else "Synchronizing with station hardware...",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.White.copy(alpha = 0.9f),
                 modifier = Modifier.padding(20.dp),
